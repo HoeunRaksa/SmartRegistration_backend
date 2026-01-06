@@ -17,7 +17,7 @@ class MajorSubject extends Model
         'subject_id'
     ];
 
-    // ------------------- Relationships -------------------
+    // ------------------- Relationships --------------------
 
     public function major()
     {
