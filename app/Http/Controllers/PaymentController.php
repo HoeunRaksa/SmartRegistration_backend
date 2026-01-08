@@ -10,7 +10,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class PaymentController extends Controller
 {
-    private const API_KEY = 'e67c00ff7d9a762d98c0d42cdb09ce1c34c6f47d';
+    private const API_KEY = 'bf2e45817599c11dcba44490cad0823a4fd0ee8c';
     private const PAYWAY_SANDBOX_URL = 'https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/';
 
     // Callback from PayWay
