@@ -9,16 +9,6 @@ class Department extends Model
 {
     use HasFactory;
 
-    // Table name (optional if follows Laravel naming conventions)
-    protected $table = 'departments';
-
-    // Primary key
-    protected $primaryKey = 'id';
-
-    // Auto-incrementing primary key
-    public $incrementing = true;
-
-    // Fields allowed for mass assignment
     protected $fillable = [
         'name',
         'code',
@@ -27,12 +17,8 @@ class Department extends Model
         'description',
         'contact_email',
         'phone_number',
-        'image_path'
+        'image_path',
     ];
-
-    /**
-     * Relationships
-     */
 
     public function students()
     {
