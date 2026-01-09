@@ -27,7 +27,7 @@ use App\Http\Controllers\api\DepartmentController;
 | AUTHENTICATION
 |--------------------------------------------------------------------------
 */
-
+ Route::post('/staffs', [StaffController::class, 'store']);
 Route::post('/login', [AuthController::class, 'login']);
 
 Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
@@ -99,6 +99,17 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::patch('/majors/{major}', [MajorController::class, 'update']);
     // DELETE
     Route::delete('/majors/{major}', [MajorController::class, 'destroy']);
+
+
+    
+     Route::prefix('staff')->group(function () {
+    Route::get('/', [StaffController::class, 'index']);
+    Route::post('/', [StaffController::class, 'store']);
+    Route::get('/{id}', [StaffController::class, 'show']);
+    Route::put('/{id}', [StaffController::class, 'update']);
+    Route::patch('/{id}', [StaffController::class, 'update']);
+    Route::delete('/{id}', [StaffController::class, 'destroy']);
+});
 
     /*
     |--------------------------------------------------------------------------
