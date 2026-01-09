@@ -1,6 +1,6 @@
 <?php
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Route; 
 Route::get('/test-session', function () {
     session(['test_key' => 'Hello World']);
     $sessionValue = session('test_key');
