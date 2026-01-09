@@ -9,11 +9,11 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      # 1️⃣ Checkout repo
+      # 1️⃣ Checkout the repo in GitHub Actions runner
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      # 2️⃣ Setup SSH agent with working action
+      # 2️⃣ Setup SSH for connecting to your server
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.1
         with:
@@ -21,7 +21,7 @@ jobs:
 
       # 3️⃣ Deploy to server
       - name: Deploy to Server
-        uses: appleboy/ssh-action@v0.1.7 
+        uses: appleboy/ssh-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ubuntu
@@ -33,15 +33,12 @@ jobs:
             echo "== USER =="
             whoami
 
-            echo "== SAFE DIRECTORY for www-data =="
-            sudo git config --system --add safe.directory /var/www/SmartRegistration_backend
-
             echo "== GO TO PROJECT =="
             cd /var/www/SmartRegistration_backend
 
-            echo "== GIT SYNC as www-data =="
-            sudo -u www-data git fetch --all
-            sudo -u www-data git reset --hard origin/main
+            echo "== GIT PULL latest code as ubuntu =="
+            git fetch --all
+            git reset --hard origin/main
 
             echo "== CLEAN VENDOR =="
             rm -rf vendor
