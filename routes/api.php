@@ -28,6 +28,10 @@ use App\Http\Controllers\Api\DepartmentController;
 | AUTHENTICATION
 |--------------------------------------------------------------------------
 */
+Route::options('{any}', function () {
+    return response()->noContent();
+})->where('any', '.*');
+
  Route::post('/staffs', [StaffController::class, 'store']);
 Route::post('/login', [AuthController::class, 'login']);
 
