@@ -1,4 +1,4 @@
-name: Laravel Deploy
+name: Laravel CI/CD
 
 on:
   push:
@@ -6,16 +6,36 @@ on:
       - main
 
 jobs:
-  deploy:
+  laravel-ci:
     runs-on: ubuntu-latest
     steps:
-      # 1️⃣ Checkout repo
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+      # 1️⃣ Checkout code in Actions runner
+      - uses: actions/checkout@v4
 
-      # 2️⃣ Deploy to server
+      # 2️⃣ Setup PHP
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+
+      # 3️⃣ Install dependencies and prepare Laravel
+      - run: php -r "file_exists('.env') || copy('.env.example', '.env');"
+      - run: composer install --no-interaction --prefer-dist
+      - run: php artisan key:generate
+      - run: php artisan config:clear
+
+  deploy:
+    needs: laravel-ci
+    runs-on: ubuntu-latest
+    steps:
+      # 1️⃣ Setup SSH to your server
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_KEY }}
+
+      # 2️⃣ Deploy commands
       - name: Deploy to Server
-        uses: appleboy/ssh-action@v0.1.7 
+        uses: appleboy/ssh-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ubuntu
@@ -24,24 +44,18 @@ jobs:
           script: |
             set -e
 
-            echo "== USER =="
-            whoami
-
             echo "== GO TO PROJECT =="
             cd /var/www/SmartRegistration_backend
 
-            echo "== FIX GIT PERMISSIONS =="
-            sudo chown -R www-data:www-data .git
+            echo "== GIT PULL latest code as ubuntu =="
+            git reset --hard
+            git pull origin main
 
-            echo "== CONFIGURE GIT SAFE DIRECTORY =="
-            sudo -u www-data git config --global --add safe.directory /var/www/SmartRegistration_backend
-
-            echo "== GIT PULL as www-data =="
-            sudo -u www-data git fetch --all
-            sudo -u www-data git reset --hard origin/main
+            echo "== SET PERMISSIONS FOR www-data =="
+            sudo chown -R www-data:www-data /var/www/SmartRegistration_backend
 
             echo "== CLEAN VENDOR =="
-            sudo rm -rf vendor
+            sudo -u www-data rm -rf vendor
 
             echo "== COMPOSER INSTALL as www-data =="
             sudo -u www-data composer install --no-dev --optimize-autoloader --no-interaction
@@ -52,22 +66,16 @@ jobs:
               sudo -u www-data php artisan key:generate
             fi
 
-            echo "== SET PERMISSIONS =="
-            sudo chown -R www-data:www-data /var/www/SmartRegistration_backend
-            sudo chmod -R 755 /var/www/SmartRegistration_backend
-            sudo chmod -R 775 /var/www/SmartRegistration_backend/storage
-            sudo chmod -R 775 /var/www/SmartRegistration_backend/bootstrap/cache
-
             echo "== LARAVEL OPTIMIZE =="
             sudo -u www-data php artisan migrate --force
             sudo -u www-data php artisan config:clear
-            sudo -u www-data php artisan config:cache
+            sudo -u www-data php artisan cache:clear
             sudo -u www-data php artisan route:clear
             sudo -u www-data php artisan route:cache
             sudo -u www-data php artisan view:clear
             sudo -u www-data php artisan view:cache
 
-            echo "== RELOAD SERVICES =="
+            echo "== RELOAD NGINX =="
             sudo systemctl reload nginx
 
             echo "== DEPLOY DONE =="
