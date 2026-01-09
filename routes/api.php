@@ -27,7 +27,7 @@ use App\Http\Controllers\api\DepartmentController;
 | AUTHENTICATION
 |--------------------------------------------------------------------------
 */
-
+ Route::post('/staffs', [StaffController::class, 'store']);
 Route::post('/login', [AuthController::class, 'login']);
 
 Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
