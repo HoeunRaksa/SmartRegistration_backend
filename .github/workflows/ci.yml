@@ -1,0 +1,25 @@
+name: Laravel Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ubuntu
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: 22
+          script: |
+            cd /var/www/SmartRegistration_backend
+            git fetch origin
+            git reset --hard origin/main
+            php artisan migrate --force
+            php artisan config:clear
+            php artisan cache:clear
