@@ -10,12 +10,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check required secrets
-        run: |
-          [ -z "${{ secrets.SERVER_IP }}" ] && echo "SERVER_IP missing" && exit 1
-          [ -z "${{ secrets.DEPLOY_KEY }}" ] && echo "DEPLOY_KEY missing" && exit 1
-          echo "Secrets OK"
-
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -29,6 +23,9 @@ jobs:
 
             echo "== USER =="
             whoami
+
+            echo "== SAFE DIRECTORY =="
+            git config --global --add safe.directory /var/www/SmartRegistration_backend
 
             echo "== GO TO PROJECT =="
             cd /var/www/SmartRegistration_backend
@@ -48,10 +45,12 @@ jobs:
               cp .env.example .env
               php artisan key:generate
             fi
- 
+
             echo "== PERMISSIONS =="
             sudo chown -R www-data:www-data storage bootstrap/cache
             sudo chmod -R 775 storage bootstrap/cache
+            sudo chown www-data:www-data .env
+            sudo chmod 664 .env
 
             echo "== LARAVEL OPTIMIZE =="
             php artisan migrate --force
@@ -66,3 +65,4 @@ jobs:
             sudo systemctl reload nginx
 
             echo "== DEPLOY DONE =="
+
