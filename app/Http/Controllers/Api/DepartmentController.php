@@ -7,7 +7,7 @@ use App\Models\Department;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
-
+use App\Models\Major;
 class DepartmentController extends Controller
 {
     public function index()
@@ -219,5 +219,15 @@ class DepartmentController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+
+ public function majors(Request $request, $department_id)
+    {
+        $majors = Major::where('department_id', $department_id)->get(['id', 'major_name']);
+        return response()->json([
+            'success' => true,
+            'data' => $majors
+        ]);
     }
 }

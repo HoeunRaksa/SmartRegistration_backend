@@ -4,7 +4,6 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 
 use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\DropdownController;
 use App\Http\Controllers\Api\StaffController;
 
 use App\Http\Controllers\PaymentController;
@@ -38,8 +37,8 @@ Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logo
 | PUBLIC / DROPDOWN DATA
 |--------------------------------------------------------------------------
 */
-Route::get('/departments', [DropdownController::class, 'departments']);
-Route::get('/departments/{department_id}/majors', [DropdownController::class, 'majors']);
+Route::get('/departments', [DepartmentController::class, 'index']);
+Route::get('/departments/{department_id}/majors', [DepartmentController::class, 'majors']);
 /*
 |--------------------------------------------------------------------------
 | PUBLIC / Majors
