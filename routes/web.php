@@ -1,9 +1,6 @@
 <?php
-use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\PaymentController;
-use App\Events\PaymentStatusUpdated;
 Route::get('/test-session', function () {
     session(['test_key' => 'Hello World']);
     $sessionValue = session('test_key');
