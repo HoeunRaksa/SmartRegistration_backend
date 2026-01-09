@@ -32,10 +32,10 @@ jobs:
 
             echo "== SAFE DIRECTORY =="
             git config --global --add safe.directory /var/www/SmartRegistration_backend
-
+ 
             echo "== GO TO PROJECT =="
             cd /var/www/SmartRegistration_backend
-
+  
             echo "== TEMP FIX PERMISSIONS FOR GIT =="
             sudo chown -R ubuntu:ubuntu .
             sudo chmod -R u+rwX .
