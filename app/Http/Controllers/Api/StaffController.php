@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\File;
 
 class StaffController extends Controller
 {
@@ -39,6 +40,14 @@ class StaffController extends Controller
 
             $staff = $query->paginate($request->per_page ?? 15);
 
+            // Add full URL for profile images
+            $staff->getCollection()->transform(function ($item) {
+                if ($item->user && $item->user->profile_picture_path) {
+                    $item->user->profile_picture_url = url('uploads/profiles/' . basename($item->user->profile_picture_path));
+                }
+                return $item;
+            });
+
             return response()->json($staff);
         } catch (\Exception $e) {
             Log::error('Failed to fetch staff', ['error' => $e->getMessage()]);
@@ -56,6 +65,12 @@ class StaffController extends Controller
     {
         try {
             $staff = Staff::with('user')->findOrFail($id);
+            
+            // Add full URL for profile image
+            if ($staff->user && $staff->user->profile_picture_path) {
+                $staff->user->profile_picture_url = url('uploads/profiles/' . basename($staff->user->profile_picture_path));
+            }
+            
             return response()->json($staff);
         } catch (\Exception $e) {
             return response()->json([
@@ -101,8 +116,19 @@ class StaffController extends Controller
         try {
             $imagePath = null;
             if ($request->hasFile('profile_image')) {
-                $imagePath = $request->file('profile_image')
-                    ->store('profiles', 'public');
+                // Create directory if not exists
+                $uploadPath = public_path('uploads/profiles');
+                if (!File::exists($uploadPath)) {
+                    File::makeDirectory($uploadPath, 0755, true);
+                }
+
+                // Generate unique filename
+                $image = $request->file('profile_image');
+                $filename = time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
+                
+                // Move to public directory
+                $image->move($uploadPath, $filename);
+                $imagePath = 'uploads/profiles/' . $filename;
             }
 
             $user = User::create([
@@ -128,17 +154,24 @@ class StaffController extends Controller
                 'date_of_birth' => $validated['date_of_birth'] ?? null,
             ]);
 
+            // Load user relationship and add image URL
+            $staff->load('user');
+            if ($staff->user && $staff->user->profile_picture_path) {
+                $staff->user->profile_picture_url = url($staff->user->profile_picture_path);
+            }
+
             DB::commit();
 
             return response()->json([
                 'message' => 'Staff created successfully',
-                'staff' => $staff->load('user'),
+                'staff' => $staff,
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
 
-            if ($imagePath) {
-                Storage::disk('public')->delete($imagePath);
+            // Delete uploaded image if exists
+            if ($imagePath && File::exists(public_path($imagePath))) {
+                File::delete(public_path($imagePath));
             }
 
             Log::error('Failed to create staff', [
@@ -185,15 +218,27 @@ class StaffController extends Controller
         try {
             $user = $staff->user;
             $oldImagePath = $user->profile_picture_path;
+            $imagePath = null;
 
             // Handle profile image upload
             if ($request->hasFile('profile_image')) {
-                $imagePath = $request->file('profile_image')
-                    ->store('profiles', 'public');
+                // Create directory if not exists
+                $uploadPath = public_path('uploads/profiles');
+                if (!File::exists($uploadPath)) {
+                    File::makeDirectory($uploadPath, 0755, true);
+                }
+
+                // Generate unique filename
+                $image = $request->file('profile_image');
+                $filename = time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
+                
+                // Move to public directory
+                $image->move($uploadPath, $filename);
+                $imagePath = 'uploads/profiles/' . $filename;
                 
                 // Delete old image
-                if ($oldImagePath) {
-                    Storage::disk('public')->delete($oldImagePath);
+                if ($oldImagePath && File::exists(public_path($oldImagePath))) {
+                    File::delete(public_path($oldImagePath));
                 }
             }
 
@@ -211,7 +256,7 @@ class StaffController extends Controller
             if (isset($validated['role'])) {
                 $userUpdates['role'] = $validated['role'];
             }
-            if (isset($imagePath)) {
+            if ($imagePath) {
                 $userUpdates['profile_picture_path'] = $imagePath;
             }
 
@@ -230,17 +275,24 @@ class StaffController extends Controller
                 $staff->update($staffUpdates);
             }
 
+            // Refresh and add image URL
+            $staff = $staff->fresh()->load('user');
+            if ($staff->user && $staff->user->profile_picture_path) {
+                $staff->user->profile_picture_url = url($staff->user->profile_picture_path);
+            }
+
             DB::commit();
 
             return response()->json([
                 'message' => 'Staff updated successfully',
-                'staff' => $staff->fresh()->load('user'),
+                'staff' => $staff,
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
 
-            if (isset($imagePath)) {
-                Storage::disk('public')->delete($imagePath);
+            // Delete uploaded image if exists
+            if (isset($imagePath) && $imagePath && File::exists(public_path($imagePath))) {
+                File::delete(public_path($imagePath));
             }
 
             Log::error('Failed to update staff', [
@@ -271,8 +323,8 @@ class StaffController extends Controller
             $user->delete();
 
             // Delete profile image if exists
-            if ($imagePath) {
-                Storage::disk('public')->delete($imagePath);
+            if ($imagePath && File::exists(public_path($imagePath))) {
+                File::delete(public_path($imagePath));
             }
 
             DB::commit();

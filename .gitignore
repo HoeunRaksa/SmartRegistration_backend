@@ -26,3 +26,5 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+/public/uploads/*
+!/public/uploads/.gitignore
