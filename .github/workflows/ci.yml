@@ -37,10 +37,11 @@ jobs:
             cd /var/www/SmartRegistration_backend
 
             echo "== TEMP FIX PERMISSIONS FOR GIT =="
-            sudo chown -R ubuntu:ubuntu .git
+            sudo chown -R ubuntu:ubuntu .
+            sudo chmod -R u+rwX .
 
             echo "== GIT SYNC =="
-            git pull origin main
+            git fetch --all
             git reset --hard origin/main
 
             echo "== CLEAN VENDOR =="
@@ -69,6 +70,10 @@ jobs:
             php artisan route:cache
             php artisan view:clear
             php artisan view:cache
+
+            echo "== RESET REPO PERMISSIONS =="
+            sudo chown -R www-data:www-data .
+            sudo chmod -R u+rwX,go+rX,go-w .
 
             echo "== RELOAD SERVICES =="
             sudo systemctl reload nginx
