@@ -60,7 +60,6 @@ jobs:
             php artisan view:cache
 
             echo "== RELOAD SERVICES =="
-            sudo systemctl reload php8.4-fpm
             sudo systemctl reload nginx
 
             echo "== DEPLOY DONE =="
