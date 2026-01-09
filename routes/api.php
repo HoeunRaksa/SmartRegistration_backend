@@ -79,9 +79,11 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
+    Route::post('/departments', [DepartmentController::class, 'store']);
+    Route::put('/departments/{department}', [DepartmentController::class, 'update']);
+    Route::patch('/departments/{department}', [DepartmentController::class, 'update']);
+    Route::delete('/departments/{department}', [DepartmentController::class, 'destroy']);
 
-    Route::post('/staffs', [StaffController::class, 'store']);
-     Route::post('/departments', [DepartmentController::class, 'store']);
     /*
     |--------------------------------------------------------------------------
     | DEBUG ROUTES (REMOVE IN PRODUCTION)

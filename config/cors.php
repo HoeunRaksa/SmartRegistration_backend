@@ -41,4 +41,9 @@ return [
 
     // Whether credentials are supported (cookies, authorization headers)
     'supports_credentials' => false,
+    'paths' => ['api/*', 'sanctum/csrf-cookie'],
+    'allowed_methods' => ['*'],
+    'allowed_origins' => ['http://localhost:5173', 'http://localhost:3000'],
+    'allowed_headers' => ['*'],
+    'supports_credentials' => true,
 ];

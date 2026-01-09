@@ -12,7 +12,7 @@ class DropdownController extends Controller
     // Get all departments
     public function departments()
     {
-        $departments = Department::all(['id', 'name']);
+        $departments = Department::all();
         return response()->json([
             'success' => true,
             'data' => $departments
