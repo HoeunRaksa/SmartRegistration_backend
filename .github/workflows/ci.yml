@@ -23,7 +23,7 @@ jobs:
             exit 1
           else
             echo "✅ DEPLOY_KEY is set"
-          fi 
+          fi  
 
       - name: Deploy to server (SSH debug)
         uses: appleboy/ssh-action@v0.1.7
