@@ -34,7 +34,7 @@ jobs:
             whoami
 
             echo "== SAFE DIRECTORY for www-data =="
-            sudo -u www-data git config --global --add safe.directory /var/www/SmartRegistration_backend
+            sudo git config --system --add safe.directory /var/www/SmartRegistration_backend
 
             echo "== GO TO PROJECT =="
             cd /var/www/SmartRegistration_backend
