@@ -48,7 +48,7 @@ jobs:
               cp .env.example .env
               php artisan key:generate
             fi
-
+ 
             echo "== PERMISSIONS =="
             sudo chown -R www-data:www-data storage bootstrap/cache
             sudo chmod -R 775 storage bootstrap/cache
