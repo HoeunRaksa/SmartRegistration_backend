@@ -10,6 +10,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check required secrets
+        run: |
+          [ -z "${{ secrets.SERVER_IP }}" ] && echo "SERVER_IP missing" && exit 1
+          [ -z "${{ secrets.DEPLOY_KEY }}" ] && echo "DEPLOY_KEY missing" && exit 1
+          echo "Secrets OK"
+
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -30,6 +36,9 @@ jobs:
             echo "== GO TO PROJECT =="
             cd /var/www/SmartRegistration_backend
 
+            echo "== TEMP FIX PERMISSIONS FOR GIT =="
+            sudo chown -R ubuntu:ubuntu .git
+
             echo "== GIT SYNC =="
             git pull origin main
             git reset --hard origin/main
@@ -46,7 +55,7 @@ jobs:
               php artisan key:generate
             fi
 
-            echo "== PERMISSIONS =="
+            echo "== SET LARAVEL PERMISSIONS =="
             sudo chown -R www-data:www-data storage bootstrap/cache
             sudo chmod -R 775 storage bootstrap/cache
             sudo chown www-data:www-data .env
@@ -61,8 +70,7 @@ jobs:
             php artisan view:clear
             php artisan view:cache
 
-            echo "== RELOAD SERVICES ==" 
+            echo "== RELOAD SERVICES =="
             sudo systemctl reload nginx
 
             echo "== DEPLOY DONE =="
-
