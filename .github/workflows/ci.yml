@@ -37,9 +37,7 @@ jobs:
             cd /var/www/SmartRegistration_backend
 
             echo "== GIT PULL latest code as ubuntu =="
-            git fetch --all
-            git reset --hard origin/main
-
+            git pull origin main
             echo "== CLEAN VENDOR =="
             rm -rf vendor
 
