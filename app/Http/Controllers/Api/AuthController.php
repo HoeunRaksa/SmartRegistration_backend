@@ -34,7 +34,7 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'role'  => $user->role,
                 'profile_picture_url' => $user->profile_picture_path
-                    ? url('storage/' . $user->profile_picture_path)
+                    ? url($user->profile_picture_path)
                     : null,
             ],
             'token' => $token,
