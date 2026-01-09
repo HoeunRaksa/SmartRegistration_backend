@@ -12,7 +12,8 @@ use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\MajorController;
 use App\Http\Controllers\MajorSubjectController;
 use App\Http\Controllers\CourseController;
-use App\Http\Controllers\api\DepartmentController;
+use App\Http\Controllers\Api\DepartmentController;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
