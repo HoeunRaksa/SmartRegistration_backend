@@ -27,6 +27,7 @@ use App\Http\Controllers\api\DepartmentController;
 | AUTHENTICATION
 |--------------------------------------------------------------------------
 */
+
 Route::post('/login', [AuthController::class, 'login']);
 
 Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
@@ -38,6 +39,14 @@ Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logo
 */
 Route::get('/departments', [DropdownController::class, 'departments']);
 Route::get('/departments/{department_id}/majors', [DropdownController::class, 'majors']);
+/*
+|--------------------------------------------------------------------------
+| PUBLIC / Majors
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/majors', [MajorController::class, 'index']);
+Route::get('/majors/{major}', [MajorController::class, 'show']);
 
 /*
 |--------------------------------------------------------------------------
@@ -79,9 +88,18 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
+    Route::post('/departments', [DepartmentController::class, 'store']);
+    Route::put('/departments/{department}', [DepartmentController::class, 'update']);
+    Route::patch('/departments/{department}', [DepartmentController::class, 'update']);
+    Route::delete('/departments/{department}', [DepartmentController::class, 'destroy']);
+    // POST
+    Route::post('/majors', [MajorController::class, 'store']);
+    // PUT / PATCH
+    Route::put('/majors/{major}', [MajorController::class, 'update']);
+    Route::patch('/majors/{major}', [MajorController::class, 'update']);
+    // DELETE
+    Route::delete('/majors/{major}', [MajorController::class, 'destroy']);
 
-    Route::post('/staffs', [StaffController::class, 'store']);
-     Route::post('/departments', [DepartmentController::class, 'store']);
     /*
     |--------------------------------------------------------------------------
     | DEBUG ROUTES (REMOVE IN PRODUCTION)
@@ -96,5 +114,4 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
             'raw' => $request->getContent(),
         ]);
     });
-
 });
