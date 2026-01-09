@@ -15,14 +15,6 @@ class DepartmentController extends Controller
         try {
             $departments = Department::latest()->get();
 
-            // Add full URL for images
-            $departments->transform(function ($department) {
-                if ($department->image_path) {
-                    $department->image_url = url($department->image_path);
-                }
-                return $department;
-            });
-
             return response()->json([
                 'success' => true,
                 'data' => $departments
