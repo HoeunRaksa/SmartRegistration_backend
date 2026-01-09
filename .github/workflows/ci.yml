@@ -29,16 +29,19 @@ jobs:
 
             echo "== USER =="
             whoami
- 
+
             echo "== GO TO PROJECT =="
             cd /var/www/SmartRegistration_backend
 
             echo "== GIT SYNC =="
-            git fetch origin
+            git pull origin main
             git reset --hard origin/main
 
+            echo "== CLEAN VENDOR =="
+            rm -rf vendor
+
             echo "== COMPOSER INSTALL =="
-            composer install --no-dev --optimize-autoloader
+            composer install --no-dev --optimize-autoloader --no-interaction
 
             echo "== ENV CHECK =="
             if [ ! -f .env ]; then
@@ -59,7 +62,7 @@ jobs:
             php artisan view:clear
             php artisan view:cache
 
-            echo "== RELOAD SERVICES =="
+            echo "== RELOAD SERVICES ==" 
             sudo systemctl reload nginx
 
             echo "== DEPLOY DONE =="
