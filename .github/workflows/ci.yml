@@ -37,8 +37,6 @@ jobs:
             cd /var/www/SmartRegistration_backend
   
             echo "== TEMP FIX PERMISSIONS FOR GIT =="
-            sudo chown -R ubuntu:ubuntu .
-            sudo chmod -R u+rwX .
 
             echo "== GIT SYNC =="
             git fetch --all
@@ -56,12 +54,6 @@ jobs:
               php artisan key:generate
             fi
 
-            echo "== SET LARAVEL PERMISSIONS =="
-            sudo chown -R www-data:www-data storage bootstrap/cache
-            sudo chmod -R 775 storage bootstrap/cache
-            sudo chown www-data:www-data .env
-            sudo chmod 664 .env
-
             echo "== LARAVEL OPTIMIZE =="
             php artisan migrate --force
             php artisan config:clear
@@ -70,10 +62,6 @@ jobs:
             php artisan route:cache
             php artisan view:clear
             php artisan view:cache
-
-            echo "== RESET REPO PERMISSIONS =="
-            sudo chown -R www-data:www-data .
-            sudo chmod -R u+rwX,go+rX,go-w .
 
             echo "== RELOAD SERVICES =="
             sudo systemctl reload nginx
