@@ -42,8 +42,9 @@ Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logo
 | PUBLIC / DROPDOWN DATA
 |--------------------------------------------------------------------------
 */
-Route::get('/departments', [DropdownController::class, 'departments']);
 Route::get('/departments/{department_id}/majors', [DropdownController::class, 'majors']);
+Route::get('/departments', [DepartmentController::class, 'index']);
+Route::get('/departments/{department}', [DepartmentController::class, 'show']);
 /*
 |--------------------------------------------------------------------------
 | PUBLIC / Majors
