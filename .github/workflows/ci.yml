@@ -1,45 +1,66 @@
-name: Laravel Deploy (Debug)
+name: Laravel Deploy (Production)
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Debug secrets presence
+      - name: Check required secrets
         run: |
-          if [ -z "${{ secrets.SERVER_IP }}" ]; then
-            echo "❌ SERVER_IP is EMPTY"
-            exit 1
-          else
-            echo "✅ SERVER_IP is set"
-          fi
+          [ -z "${{ secrets.SERVER_IP }}" ] && echo "SERVER_IP missing" && exit 1
+          [ -z "${{ secrets.DEPLOY_KEY }}" ] && echo "DEPLOY_KEY missing" && exit 1
+          echo "Secrets OK"
 
-          if [ -z "${{ secrets.DEPLOY_KEY }}" ]; then
-            echo "❌ DEPLOY_KEY is EMPTY"
-            exit 1
-          else
-            echo "✅ DEPLOY_KEY is set"
-          fi  
-
-      - name: Deploy to server (SSH debug)
+      - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ubuntu
-          key: ${{ secrets.DEPLOY_KEY }} 
+          key: ${{ secrets.DEPLOY_KEY }}
           port: 22
           debug: true
           script: |
+            set -e
+
+            echo "== USER =="
             whoami
-            pwd
+
+            echo "== GO TO PROJECT =="
             cd /var/www/SmartRegistration_backend
-            git status
+
+            echo "== GIT SYNC =="
             git fetch origin
             git reset --hard origin/main
+
+            echo "== COMPOSER INSTALL =="
+            composer install --no-dev --optimize-autoloader
+
+            echo "== ENV CHECK =="
+            if [ ! -f .env ]; then
+              cp .env.example .env
+              php artisan key:generate
+            fi
+
+            echo "== PERMISSIONS =="
+            sudo chown -R www-data:www-data storage bootstrap/cache
+            sudo chmod -R 775 storage bootstrap/cache
+
+            echo "== LARAVEL OPTIMIZE =="
             php artisan migrate --force
             php artisan config:clear
-            php artisan cache:clear
+            php artisan config:cache
+            php artisan route:clear
+            php artisan route:cache
+            php artisan view:clear
+            php artisan view:cache
+
+            echo "== RELOAD SERVICES =="
+            sudo systemctl reload php8.4-fpm
+            sudo systemctl reload nginx
+
+            echo "== DEPLOY DONE =="
