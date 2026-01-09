@@ -18,15 +18,9 @@ class Department extends Model
         'contact_email',
         'phone_number',
         'image_path',
+        'image_url'
     ];
-    protected $appends = ['image_url'];
 
-    public function getImageUrlAttribute()
-    {
-        return $this->image_path
-            ? asset('storage/' . $this->image_path)
-            : null;
-    }
 
     public function students()
     {
