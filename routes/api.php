@@ -13,7 +13,7 @@ use App\Http\Controllers\MajorController;
 use App\Http\Controllers\MajorSubjectController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\SubjectController;
-
+use App\Http\Controllers\StudentController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -84,6 +84,13 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
+    // Students
+    Route::get('/students', [StudentController::class, 'index']);
+    Route::get('/students/{id}', [StudentController::class, 'show']);
+    Route::post('/students', [StudentController::class, 'store']);
+    Route::put('/students/{id}', [StudentController::class, 'update']);
+    Route::patch('/students/{id}', [StudentController::class, 'update']);
+    Route::delete('/students/{id}', [StudentController::class, 'destroy']);
 
     // Departments
     Route::post('/departments', [DepartmentController::class, 'store']);
