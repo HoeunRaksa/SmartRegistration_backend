@@ -31,9 +31,14 @@ class RegistrationController extends Controller
 
         // ✅ Prevent duplicate registration
         $exists = DB::table('registrations')
-            ->where('personal_email', $request->personal_email)
-            ->orWhere('phone_number', $request->phone_number)
+            ->when($validated['personal_email'] ?? null, function ($q) use ($validated) {
+                $q->where('personal_email', $validated['personal_email']);
+            })
+            ->when($validated['phone_number'] ?? null, function ($q) use ($validated) {
+                $q->orWhere('phone_number', $validated['phone_number']);
+            })
             ->first();
+
 
         if ($exists) {
             return response()->json([
