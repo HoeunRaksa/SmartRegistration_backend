@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\File;
 
 class RegistrationController extends Controller
 {
@@ -17,6 +18,9 @@ class RegistrationController extends Controller
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name'  => 'required|string|max:255',
+            'full_name_kh' => 'nullable|string|max:255',
+            'full_name_en' => 'nullable|string|max:255',
+            
             'gender'     => 'required|string',
             'date_of_birth' => 'required|date',
 
@@ -39,7 +43,6 @@ class RegistrationController extends Controller
             })
             ->first();
 
-
         if ($exists) {
             return response()->json([
                 'success' => false,
@@ -57,12 +60,16 @@ class RegistrationController extends Controller
         // ✅ Generate student password
         $plainPassword = 'novatech' . now()->format('Ymd');
 
+        // ✅ Auto-generate full_name_en if not provided
+        $fullNameEn = $request->full_name_en ?? ($request->first_name . ' ' . $request->last_name);
+        $fullNameKh = $request->full_name_kh ?? ($request->first_name . ' ' . $request->last_name);
+
         // ✅ Insert registration
         $data = [
             'first_name' => $request->first_name,
             'last_name'  => $request->last_name,
-            'full_name_kh' => $request->full_name_kh,
-            'full_name_en' => $request->full_name_en,
+            'full_name_kh' => $fullNameKh,
+            'full_name_en' => $fullNameEn,
 
             'gender' => $request->gender,
             'date_of_birth' => $request->date_of_birth,
@@ -98,11 +105,11 @@ class RegistrationController extends Controller
             'mothers_job' => $request->mothers_job,
             'mother_phone_number' => $request->mother_phone_number,
 
-            // ✅ Guardian (FIXED)
+            // ✅ Guardian
             'guardian_name' => $request->guardian_name,
             'guardian_phone_number' => $request->guardian_phone_number,
 
-            // ✅ Emergency (FIXED)
+            // ✅ Emergency
             'emergency_contact_name' => $request->emergency_contact_name,
             'emergency_contact_phone_number' => $request->emergency_contact_phone_number,
 
@@ -112,11 +119,16 @@ class RegistrationController extends Controller
             'updated_at' => now(),
         ];
 
+        // ✅ Remove null values to prevent database errors
+        $data = array_filter($data, function($value) {
+            return $value !== null;
+        });
+
         DB::table('registrations')->insert($data);
 
         // ✅ Create student user account
         $user = \App\Models\User::create([
-            'name' => $request->first_name . ' ' . $request->last_name,
+            'name' => $fullNameEn,
             'email' => $request->personal_email,
             'password' => Hash::make($plainPassword),
             'role' => 'student',
@@ -132,5 +144,147 @@ class RegistrationController extends Controller
                 'role' => 'student',
             ]
         ], 201);
+    }
+
+    // ✅ Get all registrations
+    public function index()
+    {
+        $registrations = DB::table('registrations')
+            ->join('departments', 'registrations.department_id', '=', 'departments.id')
+            ->join('majors', 'registrations.major_id', '=', 'majors.id')
+            ->select(
+                'registrations.*',
+                'departments.name as department_name',
+                'majors.major_name'
+            )
+            ->orderBy('registrations.created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $registrations
+        ]);
+    }
+
+    // ✅ Get single registration
+    public function show($id)
+    {
+        $registration = DB::table('registrations')
+            ->join('departments', 'registrations.department_id', '=', 'departments.id')
+            ->join('majors', 'registrations.major_id', '=', 'majors.id')
+            ->where('registrations.id', $id)
+            ->select(
+                'registrations.*',
+                'departments.name as department_name',
+                'majors.major_name'
+            )
+            ->first();
+
+        if (!$registration) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Registration not found'
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $registration
+        ]);
+    }
+
+    // ✅ Update registration
+    public function update(Request $request, $id)
+    {
+        $registration = DB::table('registrations')->where('id', $id)->first();
+
+        if (!$registration) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Registration not found'
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'first_name' => 'sometimes|required|string|max:255',
+            'last_name'  => 'sometimes|required|string|max:255',
+            'full_name_kh' => 'nullable|string|max:255',
+            'full_name_en' => 'nullable|string|max:255',
+            'gender'     => 'sometimes|required|string',
+            'date_of_birth' => 'sometimes|required|date',
+            'personal_email' => 'nullable|email',
+            'phone_number'   => 'nullable|string|max:20',
+            'department_id' => 'sometimes|required|exists:departments,id',
+            'major_id'      => 'sometimes|required|exists:majors,id',
+            'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+        ]);
+
+        // Handle profile picture upload
+        if ($request->hasFile('profile_picture')) {
+            // Delete old picture if exists
+            if ($registration->profile_picture_path) {
+                $oldPath = storage_path('app/public/' . $registration->profile_picture_path);
+                if (File::exists($oldPath)) {
+                    File::delete($oldPath);
+                }
+            }
+
+            $validated['profile_picture_path'] = $request->file('profile_picture')
+                ->store('profiles', 'public');
+        }
+
+        // Auto-generate full names if not provided
+        if (isset($validated['first_name']) || isset($validated['last_name'])) {
+            $firstName = $validated['first_name'] ?? $registration->first_name;
+            $lastName = $validated['last_name'] ?? $registration->last_name;
+            
+            if (!isset($validated['full_name_en'])) {
+                $validated['full_name_en'] = $firstName . ' ' . $lastName;
+            }
+        }
+
+        $validated['updated_at'] = now();
+
+        // Remove null values
+        $validated = array_filter($validated, function($value) {
+            return $value !== null;
+        });
+
+        DB::table('registrations')
+            ->where('id', $id)
+            ->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Registration updated successfully'
+        ]);
+    }
+
+    // ✅ Delete registration
+    public function destroy($id)
+    {
+        $registration = DB::table('registrations')->where('id', $id)->first();
+
+        if (!$registration) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Registration not found'
+            ], 404);
+        }
+
+        // Delete profile picture if exists
+        if ($registration->profile_picture_path) {
+            $filePath = storage_path('app/public/' . $registration->profile_picture_path);
+            if (File::exists($filePath)) {
+                File::delete($filePath);
+            }
+        }
+
+        DB::table('registrations')->where('id', $id)->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Registration deleted successfully'
+        ]);
     }
 }
