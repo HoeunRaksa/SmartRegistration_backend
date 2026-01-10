@@ -10,6 +10,14 @@ class Student extends Model
     use HasFactory;
 
     protected $table = 'students';
+    protected $appends = ['profile_picture_url'];
+    public function getProfilePictureUrlAttribute()
+    {
+        return $this->profile_picture
+            ? asset('uploads/profiles/' . $this->profile_picture)
+            : null;
+    }
+
 
     protected $fillable = [
         'student_code',
