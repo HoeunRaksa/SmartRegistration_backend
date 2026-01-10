@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
+use App\Models\Student;
+use App\Models\User;
 
 class RegistrationController extends Controller
 {
@@ -50,100 +52,153 @@ class RegistrationController extends Controller
             ], 409);
         }
 
-        // ✅ Upload profile picture
-        $profilePicturePath = null;
-        if ($request->hasFile('profile_picture')) {
-            $profilePicturePath = $request->file('profile_picture')
-                ->store('profiles', 'public');
-        }
+        // ✅ Start database transaction
+        DB::beginTransaction();
 
-        // ✅ Generate student password
-        $plainPassword = 'novatech' . now()->format('Ymd');
+        try {
+            // ✅ Upload profile picture
+            $profilePicturePath = null;
+            if ($request->hasFile('profile_picture')) {
+                $profilePicturePath = $request->file('profile_picture')
+                    ->store('profiles', 'public');
+            }
 
-        // ✅ Auto-generate full_name_en if not provided
-        $fullNameEn = $request->full_name_en ?? ($request->first_name . ' ' . $request->last_name);
-        $fullNameKh = $request->full_name_kh ?? ($request->first_name . ' ' . $request->last_name);
+            // ✅ Generate student password
+            $plainPassword = 'novatech' . now()->format('Ymd');
 
-        // ✅ Insert registration
-        $data = [
-            'first_name' => $request->first_name,
-            'last_name'  => $request->last_name,
-            'full_name_kh' => $fullNameKh,
-            'full_name_en' => $fullNameEn,
+            // ✅ Auto-generate full_name_en if not provided
+            $fullNameEn = $request->full_name_en ?? ($request->first_name . ' ' . $request->last_name);
+            $fullNameKh = $request->full_name_kh ?? ($request->first_name . ' ' . $request->last_name);
 
-            'gender' => $request->gender,
-            'date_of_birth' => $request->date_of_birth,
+            // ✅ Insert registration
+            $registrationData = [
+                'first_name' => $request->first_name,
+                'last_name'  => $request->last_name,
+                'full_name_kh' => $fullNameKh,
+                'full_name_en' => $fullNameEn,
 
-            'address' => $request->address,
-            'current_address' => $request->current_address,
+                'gender' => $request->gender,
+                'date_of_birth' => $request->date_of_birth,
 
-            'phone_number' => $request->phone_number,
-            'personal_email' => $request->personal_email,
+                'address' => $request->address,
+                'current_address' => $request->current_address,
 
-            'high_school_name' => $request->high_school_name,
-            'graduation_year' => $request->graduation_year,
-            'grade12_result' => $request->grade12_result,
+                'phone_number' => $request->phone_number,
+                'personal_email' => $request->personal_email,
 
-            'department_id' => $request->department_id,
-            'major_id' => $request->major_id,
-            'faculty' => $request->faculty,
-            'shift' => $request->shift,
-            'batch' => $request->batch,
-            'academic_year' => $request->academic_year,
+                'high_school_name' => $request->high_school_name,
+                'graduation_year' => $request->graduation_year,
+                'grade12_result' => $request->grade12_result,
 
-            // ✅ Father
-            'father_name' => $request->father_name,
-            'fathers_date_of_birth' => $request->fathers_date_of_birth,
-            'fathers_nationality' => $request->fathers_nationality,
-            'fathers_job' => $request->fathers_job,
-            'fathers_phone_number' => $request->fathers_phone_number,
+                'department_id' => $request->department_id,
+                'major_id' => $request->major_id,
+                'faculty' => $request->faculty,
+                'shift' => $request->shift,
+                'batch' => $request->batch,
+                'academic_year' => $request->academic_year,
 
-            // ✅ Mother
-            'mother_name' => $request->mother_name,
-            'mother_date_of_birth' => $request->mother_date_of_birth,
-            'mother_nationality' => $request->mother_nationality,
-            'mothers_job' => $request->mothers_job,
-            'mother_phone_number' => $request->mother_phone_number,
+                // ✅ Father
+                'father_name' => $request->father_name,
+                'fathers_date_of_birth' => $request->fathers_date_of_birth,
+                'fathers_nationality' => $request->fathers_nationality,
+                'fathers_job' => $request->fathers_job,
+                'fathers_phone_number' => $request->fathers_phone_number,
 
-            // ✅ Guardian
-            'guardian_name' => $request->guardian_name,
-            'guardian_phone_number' => $request->guardian_phone_number,
+                // ✅ Mother
+                'mother_name' => $request->mother_name,
+                'mother_date_of_birth' => $request->mother_date_of_birth,
+                'mother_nationality' => $request->mother_nationality,
+                'mothers_job' => $request->mothers_job,
+                'mother_phone_number' => $request->mother_phone_number,
 
-            // ✅ Emergency
-            'emergency_contact_name' => $request->emergency_contact_name,
-            'emergency_contact_phone_number' => $request->emergency_contact_phone_number,
+                // ✅ Guardian
+                'guardian_name' => $request->guardian_name,
+                'guardian_phone_number' => $request->guardian_phone_number,
 
-            'profile_picture_path' => $profilePicturePath,
+                // ✅ Emergency
+                'emergency_contact_name' => $request->emergency_contact_name,
+                'emergency_contact_phone_number' => $request->emergency_contact_phone_number,
 
-            'created_at' => now(),
-            'updated_at' => now(),
-        ];
+                'profile_picture_path' => $profilePicturePath,
 
-        // ✅ Remove null values to prevent database errors
-        $data = array_filter($data, function($value) {
-            return $value !== null;
-        });
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
 
-        DB::table('registrations')->insert($data);
+            // ✅ Remove null values to prevent database errors
+            $registrationData = array_filter($registrationData, function($value) {
+                return $value !== null;
+            });
 
-        // ✅ Create student user account
-        $user = \App\Models\User::create([
-            'name' => $fullNameEn,
-            'email' => $request->personal_email,
-            'password' => Hash::make($plainPassword),
-            'role' => 'student',
-            'profile_picture_path' => $profilePicturePath,
-        ]);
+            // Insert registration and get ID
+            $registrationId = DB::table('registrations')->insertGetId($registrationData);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Registration successful',
-            'student_account' => [
-                'email' => $user->email,
-                'password' => $plainPassword,
+            // ✅ Create student user account
+            $user = User::create([
+                'name' => $fullNameEn,
+                'email' => $request->personal_email,
+                'password' => Hash::make($plainPassword),
                 'role' => 'student',
-            ]
-        ], 201);
+                'profile_picture_path' => $profilePicturePath,
+            ]);
+
+            // ✅ Create student record
+            $student = Student::create([
+                'registration_id' => $registrationId,
+                'user_id' => $user->id,
+                'department_id' => $request->department_id,
+                'full_name_kh' => $fullNameKh,
+                'full_name_en' => $fullNameEn,
+                'date_of_birth' => $request->date_of_birth,
+                'gender' => $request->gender,
+                'nationality' => $request->fathers_nationality ?? 'Cambodian', // Default or from father's nationality
+                'phone_number' => $request->phone_number,
+                'address' => $request->address,
+                'generation' => $request->batch ?? $request->academic_year, // Use batch or academic_year as generation
+                'parent_name' => $request->father_name ?? $request->mother_name, // Use father's name or mother's
+                'parent_phone' => $request->fathers_phone_number ?? $request->mother_phone_number, // Use father's phone or mother's
+                // student_code will be auto-generated by the Student model's boot method
+            ]);
+
+            // ✅ Commit transaction
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Registration successful',
+                'data' => [
+                    'registration_id' => $registrationId,
+                    'student_id' => $student->id,
+                    'student_code' => $student->student_code,
+                    'user_id' => $user->id,
+                ],
+                'student_account' => [
+                    'email' => $user->email,
+                    'password' => $plainPassword,
+                    'role' => 'student',
+                    'student_code' => $student->student_code,
+                ]
+            ], 201);
+
+        } catch (\Exception $e) {
+            // ✅ Rollback transaction on error
+            DB::rollBack();
+
+            // Delete uploaded file if exists
+            if ($profilePicturePath) {
+                $filePath = storage_path('app/public/' . $profilePicturePath);
+                if (File::exists($filePath)) {
+                    File::delete($filePath);
+                }
+            }
+
+            Log::error('Registration error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Registration failed: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     // ✅ Get all registrations
@@ -152,10 +207,13 @@ class RegistrationController extends Controller
         $registrations = DB::table('registrations')
             ->join('departments', 'registrations.department_id', '=', 'departments.id')
             ->join('majors', 'registrations.major_id', '=', 'majors.id')
+            ->leftJoin('students', 'registrations.id', '=', 'students.registration_id')
             ->select(
                 'registrations.*',
                 'departments.name as department_name',
-                'majors.major_name'
+                'majors.major_name',
+                'students.student_code',
+                'students.id as student_id'
             )
             ->orderBy('registrations.created_at', 'desc')
             ->get();
@@ -172,11 +230,16 @@ class RegistrationController extends Controller
         $registration = DB::table('registrations')
             ->join('departments', 'registrations.department_id', '=', 'departments.id')
             ->join('majors', 'registrations.major_id', '=', 'majors.id')
+            ->leftJoin('students', 'registrations.id', '=', 'students.registration_id')
+            ->leftJoin('users', 'students.user_id', '=', 'users.id')
             ->where('registrations.id', $id)
             ->select(
                 'registrations.*',
                 'departments.name as department_name',
-                'majors.major_name'
+                'majors.major_name',
+                'students.student_code',
+                'students.id as student_id',
+                'users.email as student_email'
             )
             ->first();
 
@@ -219,45 +282,86 @@ class RegistrationController extends Controller
             'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
 
-        // Handle profile picture upload
-        if ($request->hasFile('profile_picture')) {
-            // Delete old picture if exists
-            if ($registration->profile_picture_path) {
-                $oldPath = storage_path('app/public/' . $registration->profile_picture_path);
-                if (File::exists($oldPath)) {
-                    File::delete($oldPath);
+        DB::beginTransaction();
+
+        try {
+            // Handle profile picture upload
+            if ($request->hasFile('profile_picture')) {
+                // Delete old picture if exists
+                if ($registration->profile_picture_path) {
+                    $oldPath = storage_path('app/public/' . $registration->profile_picture_path);
+                    if (File::exists($oldPath)) {
+                        File::delete($oldPath);
+                    }
+                }
+
+                $validated['profile_picture_path'] = $request->file('profile_picture')
+                    ->store('profiles', 'public');
+            }
+
+            // Auto-generate full names if not provided
+            if (isset($validated['first_name']) || isset($validated['last_name'])) {
+                $firstName = $validated['first_name'] ?? $registration->first_name;
+                $lastName = $validated['last_name'] ?? $registration->last_name;
+                
+                if (!isset($validated['full_name_en'])) {
+                    $validated['full_name_en'] = $firstName . ' ' . $lastName;
                 }
             }
 
-            $validated['profile_picture_path'] = $request->file('profile_picture')
-                ->store('profiles', 'public');
-        }
+            $validated['updated_at'] = now();
 
-        // Auto-generate full names if not provided
-        if (isset($validated['first_name']) || isset($validated['last_name'])) {
-            $firstName = $validated['first_name'] ?? $registration->first_name;
-            $lastName = $validated['last_name'] ?? $registration->last_name;
-            
-            if (!isset($validated['full_name_en'])) {
-                $validated['full_name_en'] = $firstName . ' ' . $lastName;
+            // Remove null values
+            $validated = array_filter($validated, function($value) {
+                return $value !== null;
+            });
+
+            // Update registration
+            DB::table('registrations')
+                ->where('id', $id)
+                ->update($validated);
+
+            // Update student record if exists
+            $student = Student::where('registration_id', $id)->first();
+            if ($student) {
+                $studentUpdate = [];
+                
+                if (isset($validated['full_name_kh'])) {
+                    $studentUpdate['full_name_kh'] = $validated['full_name_kh'];
+                }
+                if (isset($validated['full_name_en'])) {
+                    $studentUpdate['full_name_en'] = $validated['full_name_en'];
+                }
+                if (isset($validated['date_of_birth'])) {
+                    $studentUpdate['date_of_birth'] = $validated['date_of_birth'];
+                }
+                if (isset($validated['gender'])) {
+                    $studentUpdate['gender'] = $validated['gender'];
+                }
+                if (isset($validated['department_id'])) {
+                    $studentUpdate['department_id'] = $validated['department_id'];
+                }
+
+                if (!empty($studentUpdate)) {
+                    $student->update($studentUpdate);
+                }
             }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Registration updated successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Update failed: ' . $e->getMessage()
+            ], 500);
         }
-
-        $validated['updated_at'] = now();
-
-        // Remove null values
-        $validated = array_filter($validated, function($value) {
-            return $value !== null;
-        });
-
-        DB::table('registrations')
-            ->where('id', $id)
-            ->update($validated);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Registration updated successfully'
-        ]);
     }
 
     // ✅ Delete registration
@@ -272,19 +376,46 @@ class RegistrationController extends Controller
             ], 404);
         }
 
-        // Delete profile picture if exists
-        if ($registration->profile_picture_path) {
-            $filePath = storage_path('app/public/' . $registration->profile_picture_path);
-            if (File::exists($filePath)) {
-                File::delete($filePath);
+        DB::beginTransaction();
+
+        try {
+            // Find and delete related student record
+            $student = Student::where('registration_id', $id)->first();
+            if ($student) {
+                // Delete related user account
+                if ($student->user_id) {
+                    User::where('id', $student->user_id)->delete();
+                }
+                
+                // Delete student record
+                $student->delete();
             }
+
+            // Delete profile picture if exists
+            if ($registration->profile_picture_path) {
+                $filePath = storage_path('app/public/' . $registration->profile_picture_path);
+                if (File::exists($filePath)) {
+                    File::delete($filePath);
+                }
+            }
+
+            // Delete registration
+            DB::table('registrations')->where('id', $id)->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Registration deleted successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Delete failed: ' . $e->getMessage()
+            ], 500);
         }
-
-        DB::table('registrations')->where('id', $id)->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Registration deleted successfully'
-        ]);
     }
 }
