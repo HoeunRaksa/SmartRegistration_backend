@@ -29,7 +29,7 @@ use App\Http\Controllers\SubjectController;
 */
  Route::post('/staffs', [StaffController::class, 'store']);
 Route::post('/login', [AuthController::class, 'login']);
-
+Route::post('/register/save', [RegistrationController::class, 'store']);
 Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
 
 /*
@@ -74,7 +74,7 @@ Route::get('/subjects/{id}', [SubjectController::class, 'show']);
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:student'])->group(function () {
-    Route::post('/register/save', [RegistrationController::class, 'store']);
+ 
 });
 
 /*
