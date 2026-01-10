@@ -12,7 +12,7 @@ use App\Http\Controllers\MajorController;
 use App\Http\Controllers\MajorSubjectController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\Api\DepartmentController;
-
+use App\Http\Controllers\SubjectController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -60,7 +60,14 @@ Route::prefix('payment')->group(function () {
     // Payment gateway callback (must stay public)
     Route::post('/callback', [PaymentController::class, 'paymentCallback']);
 });
+/*
+|--------------------------------------------------------------------------
+| Subject ROUTES
+|--------------------------------------------------------------------------
+*/
 
+Route::get('/subjects', [SubjectController::class, 'index']);
+Route::get('/subjects/{id}', [SubjectController::class, 'show']);
 /*
 |--------------------------------------------------------------------------
 | STUDENT ROUTES
@@ -99,6 +106,12 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::put('/majors/{major}', [MajorController::class, 'update']);
     Route::patch('/majors/{major}', [MajorController::class, 'update']);
     Route::delete('/majors/{major}', [MajorController::class, 'destroy']);
+
+    // Subjects (WRITE ONLY)
+    Route::post('/subjects', [SubjectController::class, 'store']);
+    Route::put('/subjects/{id}', [SubjectController::class, 'update']);
+    Route::patch('/subjects/{id}', [SubjectController::class, 'update']);
+    Route::delete('/subjects/{id}', [SubjectController::class, 'destroy']);
 
     // Staff
     Route::prefix('staff')->group(function () {
