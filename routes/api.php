@@ -5,14 +5,15 @@ use Illuminate\Http\Request;
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\StaffController;
+use App\Http\Controllers\Api\DepartmentController;
 
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\MajorController;
 use App\Http\Controllers\MajorSubjectController;
 use App\Http\Controllers\CourseController;
-use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\SubjectController;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -24,57 +25,45 @@ use App\Http\Controllers\SubjectController;
 
 /*
 |--------------------------------------------------------------------------
-| AUTHENTICATION
+| AUTHENTICATION (PUBLIC)
 |--------------------------------------------------------------------------
 */
- Route::post('/staffs', [StaffController::class, 'store']);
 Route::post('/login', [AuthController::class, 'login']);
-Route::post('/register/save', [RegistrationController::class, 'store']);
+Route::post('/register/save', [RegistrationController::class, 'store']); // ✅ STUDENT SELF-REGISTER
 Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
 
 /*
 |--------------------------------------------------------------------------
-| PUBLIC / DROPDOWN DATA
+| PUBLIC DATA (NO LOGIN REQUIRED)
 |--------------------------------------------------------------------------
 */
 Route::get('/departments', [DepartmentController::class, 'index']);
 Route::get('/departments/{department_id}/majors', [DepartmentController::class, 'majors']);
-/*
-|--------------------------------------------------------------------------
-| PUBLIC / Majors
-|--------------------------------------------------------------------------
-*/
 
 Route::get('/majors', [MajorController::class, 'index']);
 Route::get('/majors/{major}', [MajorController::class, 'show']);
 
+Route::get('/subjects', [SubjectController::class, 'index']);
+Route::get('/subjects/{id}', [SubjectController::class, 'show']);
+
 /*
 |--------------------------------------------------------------------------
-| PAYMENT (PUBLIC CALLBACK, SECURE GENERATION)
+| PAYMENT (PUBLIC CALLBACK)
 |--------------------------------------------------------------------------
 */
 Route::prefix('payment')->group(function () {
     Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
     Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus']);
-
-    // Payment gateway callback (must stay public)
-    Route::post('/callback', [PaymentController::class, 'paymentCallback']);
+    Route::post('/callback', [PaymentController::class, 'paymentCallback']); // MUST stay public
 });
-/*
-|--------------------------------------------------------------------------
-| Subject ROUTES
-|--------------------------------------------------------------------------
-*/
 
-Route::get('/subjects', [SubjectController::class, 'index']);
-Route::get('/subjects/{id}', [SubjectController::class, 'show']);
 /*
 |--------------------------------------------------------------------------
-| STUDENT ROUTES
+| STUDENT ROUTES (LOGIN REQUIRED)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:student'])->group(function () {
- 
+    // Student-only routes later (profile, registration status, etc.)
 });
 
 /*
@@ -85,6 +74,7 @@ Route::middleware(['auth:sanctum', 'role:student'])->group(function () {
 Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
     Route::apiResource('major-subjects', MajorSubjectController::class)
         ->only(['index', 'store', 'show', 'destroy']);
+
     Route::apiResource('courses', CourseController::class);
 });
 
@@ -113,7 +103,7 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::patch('/subjects/{id}', [SubjectController::class, 'update']);
     Route::delete('/subjects/{id}', [SubjectController::class, 'destroy']);
 
-    // Staff
+    // Staff management
     Route::prefix('staff')->group(function () {
         Route::get('/', [StaffController::class, 'index']);
         Route::post('/', [StaffController::class, 'store']);
@@ -124,17 +114,17 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     });
 });
 
-    /*
-    |--------------------------------------------------------------------------
-    | DEBUG ROUTES (REMOVE IN PRODUCTION)
-    |--------------------------------------------------------------------------
-    */
-    Route::post('/staffs-test', function (Request $request) {
-        return response()->json([
-            'method' => $request->method(),
-            'content_type' => $request->header('Content-Type'),
-            'all' => $request->all(),
-            'files' => $request->allFiles(),
-            'raw' => $request->getContent(),
-        ]);
-    });
+/*
+|--------------------------------------------------------------------------
+| DEBUG (REMOVE IN PRODUCTION)
+|--------------------------------------------------------------------------
+*/
+Route::post('/staffs-test', function (Request $request) {
+    return response()->json([
+        'method' => $request->method(),
+        'content_type' => $request->header('Content-Type'),
+        'all' => $request->all(),
+        'files' => $request->allFiles(),
+        'raw' => $request->getContent(),
+    ]);
+});
