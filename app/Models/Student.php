@@ -26,6 +26,7 @@ class Student extends Model
         'generation',
         'parent_name',
         'parent_phone',
+        'profile_picture_path', // ✅ ADDED: Store profile picture path (relative path only)
     ];
 
     protected static function boot()
