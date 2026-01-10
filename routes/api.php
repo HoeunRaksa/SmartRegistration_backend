@@ -76,7 +76,6 @@ Route::middleware(['auth:sanctum', 'role:student'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
-    Route::apiResource('majors', MajorController::class);
     Route::apiResource('major-subjects', MajorSubjectController::class)
         ->only(['index', 'store', 'show', 'destroy']);
     Route::apiResource('courses', CourseController::class);
@@ -88,27 +87,28 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
+
+    // Departments
     Route::post('/departments', [DepartmentController::class, 'store']);
     Route::put('/departments/{department}', [DepartmentController::class, 'update']);
     Route::patch('/departments/{department}', [DepartmentController::class, 'update']);
     Route::delete('/departments/{department}', [DepartmentController::class, 'destroy']);
-    // POST
+
+    // Majors (WRITE ONLY)
     Route::post('/majors', [MajorController::class, 'store']);
-    // PUT / PATCH
     Route::put('/majors/{major}', [MajorController::class, 'update']);
     Route::patch('/majors/{major}', [MajorController::class, 'update']);
-    // DELETE
     Route::delete('/majors/{major}', [MajorController::class, 'destroy']);
 
-
-    
-     Route::prefix('staff')->group(function () {
-    Route::get('/', [StaffController::class, 'index']);
-    Route::post('/', [StaffController::class, 'store']);
-    Route::get('/{id}', [StaffController::class, 'show']);
-    Route::put('/{id}', [StaffController::class, 'update']);
-    Route::patch('/{id}', [StaffController::class, 'update']);
-    Route::delete('/{id}', [StaffController::class, 'destroy']);
+    // Staff
+    Route::prefix('staff')->group(function () {
+        Route::get('/', [StaffController::class, 'index']);
+        Route::post('/', [StaffController::class, 'store']);
+        Route::get('/{id}', [StaffController::class, 'show']);
+        Route::put('/{id}', [StaffController::class, 'update']);
+        Route::patch('/{id}', [StaffController::class, 'update']);
+        Route::delete('/{id}', [StaffController::class, 'destroy']);
+    });
 });
 
     /*
