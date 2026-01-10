@@ -51,7 +51,19 @@ class RegistrationController extends Controller
         try {
             $profilePicturePath = null;
             if ($request->hasFile('profile_picture')) {
-                $profilePicturePath = $request->file('profile_picture')->store('profiles', 'public');
+                // Create directory if not exists
+                $uploadPath = public_path('uploads/profiles');
+                if (!File::exists($uploadPath)) {
+                    File::makeDirectory($uploadPath, 0755, true);
+                }
+
+                // Generate unique filename
+                $image = $request->file('profile_picture');
+                $filename = time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
+                
+                // Move to public directory
+                $image->move($uploadPath, $filename);
+                $profilePicturePath = 'uploads/profiles/' . $filename;
             }
 
             $plainPassword = 'novatech' . now()->format('Ymd');
@@ -170,11 +182,9 @@ class RegistrationController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            if ($profilePicturePath) {
-                $filePath = storage_path('app/public/' . $profilePicturePath);
-                if (File::exists($filePath)) {
-                    File::delete($filePath);
-                }
+            // Delete uploaded image if exists
+            if ($profilePicturePath && File::exists(public_path($profilePicturePath))) {
+                File::delete(public_path($profilePicturePath));
             }
 
             Log::error('Registration error: ' . $e->getMessage());
@@ -245,14 +255,27 @@ class RegistrationController extends Controller
             $newProfilePicturePath = null;
 
             if ($request->hasFile('profile_picture')) {
+                // Delete old image
                 if ($registration->profile_picture_path) {
-                    $oldPath = storage_path('app/public/' . $registration->profile_picture_path);
+                    $oldPath = public_path($registration->profile_picture_path);
                     if (File::exists($oldPath)) {
                         File::delete($oldPath);
                     }
                 }
 
-                $newProfilePicturePath = $request->file('profile_picture')->store('profiles', 'public');
+                // Create directory if not exists
+                $uploadPath = public_path('uploads/profiles');
+                if (!File::exists($uploadPath)) {
+                    File::makeDirectory($uploadPath, 0755, true);
+                }
+
+                // Generate unique filename
+                $image = $request->file('profile_picture');
+                $filename = time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
+                
+                // Move to public directory
+                $image->move($uploadPath, $filename);
+                $newProfilePicturePath = 'uploads/profiles/' . $filename;
                 $validated['profile_picture_path'] = $newProfilePicturePath;
             }
 
@@ -299,11 +322,9 @@ class RegistrationController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            if ($newProfilePicturePath) {
-                $filePath = storage_path('app/public/' . $newProfilePicturePath);
-                if (File::exists($filePath)) {
-                    File::delete($filePath);
-                }
+            // Delete uploaded image if exists
+            if (isset($newProfilePicturePath) && $newProfilePicturePath && File::exists(public_path($newProfilePicturePath))) {
+                File::delete(public_path($newProfilePicturePath));
             }
 
             return response()->json(['success' => false, 'message' => 'Update failed: ' . $e->getMessage()], 500);
@@ -329,8 +350,9 @@ class RegistrationController extends Controller
                 $student->delete();
             }
 
+            // Delete profile image
             if ($registration->profile_picture_path) {
-                $filePath = storage_path('app/public/' . $registration->profile_picture_path);
+                $filePath = public_path($registration->profile_picture_path);
                 if (File::exists($filePath)) {
                     File::delete($filePath);
                 }
