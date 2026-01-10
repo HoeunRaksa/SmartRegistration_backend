@@ -125,4 +125,3 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
             'raw' => $request->getContent(),
         ]);
     });
-});
