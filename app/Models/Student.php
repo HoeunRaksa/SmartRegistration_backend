@@ -7,17 +7,18 @@ use Illuminate\Database\Eloquent\Model;
 
 class Student extends Model
 {
-    use HasFactory;
+     use HasFactory;
 
     protected $table = 'students';
+
     protected $appends = ['profile_picture_url'];
+
     public function getProfilePictureUrlAttribute()
     {
-        return $this->profile_picture
-            ? asset('uploads/profiles/' . $this->profile_picture)
+        return $this->profile_picture_path
+            ? asset('uploads/profiles/' . basename($this->profile_picture_path))
             : null;
     }
-
 
     protected $fillable = [
         'student_code',
