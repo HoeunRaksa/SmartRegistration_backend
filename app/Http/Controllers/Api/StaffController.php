@@ -66,7 +66,7 @@ class StaffController extends Controller
         try {
             $staff = Staff::with('user')->findOrFail($id);
             
-            // Add full URL for profile image
+            // Add full URL for profile image 
             if ($staff->user && $staff->user->profile_picture_path) {
                 $staff->user->profile_picture_url = url('uploads/profiles/' . basename($staff->user->profile_picture_path));
             }
