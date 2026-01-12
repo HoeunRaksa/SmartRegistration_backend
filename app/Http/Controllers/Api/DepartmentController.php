@@ -199,7 +199,7 @@ class DepartmentController extends Controller
 
             $department->delete();
 
-            // Delete image if exists
+             // Delete image if exists
             if ($imagePath && File::exists(public_path($imagePath))) {
                 File::delete(public_path($imagePath));
             }
