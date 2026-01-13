@@ -110,12 +110,12 @@ class PaymentController extends Controller
                 'purchase_type',
                 'payment_option',
                 'callback_url',
-                'return_deeplink',
+                'return_url',        // ✅ ADD THIS
                 'currency',
                 'lifetime',
                 'qr_image_template'
-
             ];
+
 
             $hashString = '';
             foreach ($hashFields as $field) {
