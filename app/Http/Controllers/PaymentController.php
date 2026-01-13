@@ -49,33 +49,54 @@ class PaymentController extends Controller
             // Prepare PayWay data - EXACT structure they need
             $paymentData = [
                 'req_time' => now()->format('YmdHis'),
-                'merchant_id' => self::MERCHANT_ID,
+                'merchant_id' => 'ec463261',
                 'tran_id' => $tranId,
-                'first_name' => $registration->first_name ?? '',
-                'last_name' => $registration->last_name ?? '',
-                'email' => $registration->personal_email ?? '',
-                'phone' => $registration->phone_number ?? '',
-                'amount' => (float) $amount,
-                'purchase_type' => 'Registration Fee',
-                'payment_option' => 'abapay_khqr',
+                'amount' => number_format($amount, 2, '.', ''),
+
+                // ✅ MUST be base64 JSON
                 'items' => base64_encode(json_encode([
                     [
-                        'name' => "Registration Fee - {$registration->major_name}",
+                        'name' => 'Registration Fee',
                         'quantity' => 1,
-                        'price' => (float) $amount
+                        'price' => $amount
                     ]
                 ])),
+
+                'first_name' => $registration->first_name ?? '',
+                'last_name'  => $registration->last_name ?? '',
+                'email'      => $registration->personal_email ?? '',
+                'phone'      => $registration->phone_number ?? '',
+
+                'purchase_type'  => 'purchase',
+                'payment_option' => 'abapay_khqr',
+
+                // ✅ REQUIRED BASE64
+                'callback_url'   => base64_encode(env('PAYWAY_CALLBACK_URL')),
+                'return_deeplink' => base64_encode(env('PAYWAY_RETURN_URL')),
+
                 'currency' => 'USD',
-                'callback_url' => base64_encode(url('/api/payment/callback')),
-                'lifetime' => 6, // 6 minutes
-                'qr_image_template' => 'template3_color',
+                'lifetime' => '300',
+                'qr_image_template' => 'template3_color'
             ];
+
 
             // Generate hash - EXACT order matters
             $hashFields = [
-                'req_time', 'merchant_id', 'tran_id', 'first_name', 'last_name', 
-                'email', 'phone', 'amount', 'purchase_type', 'payment_option', 
-                'items', 'currency', 'callback_url', 'lifetime', 'qr_image_template'
+                'req_time',
+                'merchant_id',
+                'tran_id',
+                'first_name',
+                'last_name',
+                'email',
+                'phone',
+                'amount',
+                'purchase_type',
+                'payment_option',
+                'items',
+                'currency',
+                'callback_url',
+                'lifetime',
+                'qr_image_template'
             ];
 
             $hashString = '';
@@ -102,7 +123,7 @@ class PaymentController extends Controller
                     'body' => $response->body(),
                     'json' => $response->json()
                 ]);
-                
+
                 return response()->json([
                     'error' => 'Payment gateway error',
                     'details' => $response->json() ?? $response->body()
@@ -110,7 +131,7 @@ class PaymentController extends Controller
             }
 
             $result = $response->json();
-            
+
             Log::info('PayWay Response:', $result);
 
             // Create payment transaction
@@ -143,14 +164,13 @@ class PaymentController extends Controller
                 'amount' => $amount,
                 'status' => 'PENDING'
             ]);
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Generate QR Error:', [
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'error' => 'Failed to generate QR code',
                 'message' => $e->getMessage()
@@ -172,7 +192,7 @@ class PaymentController extends Controller
         $newStatus = ($statusCode === "0" || strtolower($statusMsg) === 'success') ? 'PAID' : 'FAILED';
 
         DB::beginTransaction();
-        
+
         try {
             // Update payment transaction
             DB::table('payment_transactions')->updateOrInsert(
@@ -210,7 +230,6 @@ class PaymentController extends Controller
             ]);
 
             return response()->json(['ack' => 'received'], 200);
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Callback Error:', ['error' => $e->getMessage()]);
