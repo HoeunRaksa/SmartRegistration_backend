@@ -14,7 +14,8 @@ use App\Http\Controllers\MajorSubjectController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\StudentController;
-
+use Illuminate\Routing\Middleware\ThrottleRequests;
+use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -53,10 +54,9 @@ Route::get('/subjects/{id}', [SubjectController::class, 'show']);
 |--------------------------------------------------------------------------
 */
 Route::prefix('payment')
-    ->middleware(['api']) // ONLY api, nothing else
     ->withoutMiddleware([
-        \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-        \Illuminate\Routing\Middleware\ThrottleRequests::class,
+        EnsureFrontendRequestsAreStateful::class,
+        ThrottleRequests::class,
     ])
     ->group(function () {
         Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
