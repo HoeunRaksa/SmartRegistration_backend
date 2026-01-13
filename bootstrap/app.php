@@ -17,22 +17,23 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
 
-        $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
-
+        // ❌ DO NOT APPLY WEB MIDDLEWARE TO API
         $middleware->web(append: [
             HandleAppearance::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
-        $middleware->alias([
-            'role' => RoleMiddleware::class, // ✅ THIS FIXES YOUR ERROR
-        ]);
+
+        // ✅ API MUST BE STATELESS
         $middleware->api(append: [
             \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ]);
-    })
 
+        $middleware->alias([
+            'role' => RoleMiddleware::class,
+        ]);
+    })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
     })
