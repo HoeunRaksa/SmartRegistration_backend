@@ -27,7 +27,7 @@ class PaymentController extends Controller
         $newStatus = ($statusCode === "0" || strtolower($statusMsg) === 'success') ? 'PAID' : 'FAILED';
 
         DB::beginTransaction();
-        
+
         try {
             // Update payment_transactions table
             DB::table('payment_transactions')->updateOrInsert(
@@ -65,7 +65,6 @@ class PaymentController extends Controller
             ]);
 
             return response()->json(['ack' => 'received'], 200);
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Payment callback error: ' . $e->getMessage());
@@ -106,10 +105,10 @@ class PaymentController extends Controller
             $tranId = 'REG-' . $registration->id . '-' . time();
             $amount = $registration->payment_amount ?? $registration->registration_fee;
 
-            // Prepare PayWay data
+            // Prepare PayWay  data
             $data = [
                 'req_time' => now()->format('YmdHis'),
-                'merchant_id' => env('PAYWAY_MERCHANT_ID', 'ec463261'),
+                'merchant_id' => 'ec463261', // OK for now
                 'tran_id' => $tranId,
                 'amount' => number_format($amount, 2, '.', ''),
                 'items' => "Registration Fee - {$registration->major_name}",
@@ -119,8 +118,11 @@ class PaymentController extends Controller
                 'phone' => $registration->phone_number ?? '',
                 'purchase_type' => 'Registration Fee',
                 'payment_option' => 'abapay_khqr',
-                'callback_url' => url('/api/payment/callback'),
-                'return_deeplink' => url('/payment-success'),
+
+                // 🔥 REQUIRED FIX
+                'callback_url' => base64_encode(url('/api/payment/callback')),
+                'return_deeplink' => base64_encode(url('/payment-success')),
+
                 'currency' => 'USD',
                 'custom_fields' => json_encode([
                     'registration_id' => $registration->id,
@@ -129,16 +131,30 @@ class PaymentController extends Controller
                 ]),
                 'return_params' => $tranId,
                 'payout' => '',
-                'lifetime' => '300', // 5 minutes
+                'lifetime' => '300',
                 'qr_image_template' => 'template3_color'
             ];
-
             // Generate hash
             $fields = [
-                'req_time', 'merchant_id', 'tran_id', 'amount', 'items',
-                'first_name', 'last_name', 'email', 'phone', 'purchase_type',
-                'payment_option', 'callback_url', 'return_deeplink', 'currency',
-                'custom_fields', 'return_params', 'payout', 'lifetime', 'qr_image_template'
+                'req_time',
+                'merchant_id',
+                'tran_id',
+                'amount',
+                'items',
+                'first_name',
+                'last_name',
+                'email',
+                'phone',
+                'purchase_type',
+                'payment_option',
+                'callback_url',
+                'return_deeplink',
+                'currency',
+                'custom_fields',
+                'return_params',
+                'payout',
+                'lifetime',
+                'qr_image_template'
             ];
 
             $concat = '';
@@ -196,7 +212,6 @@ class PaymentController extends Controller
             ]);
 
             return response()->json($result);
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Generate QR error: ' . $e->getMessage());
