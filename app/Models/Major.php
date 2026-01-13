@@ -15,10 +15,14 @@ class Major extends Model
     protected $fillable = [
         'major_name',
         'description',
-        'department_id'
+        'department_id',
+        'registration_fee'
     ];
 
-    // ------------------- Relationships -------------------
+    protected $casts = [
+        'registration_fee' => 'decimal:2'
+    ];
+
 
     public function department()
     {

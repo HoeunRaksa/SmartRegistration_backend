@@ -14,6 +14,7 @@ use App\Http\Controllers\MajorSubjectController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\StudentController;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -48,13 +49,14 @@ Route::get('/subjects/{id}', [SubjectController::class, 'show']);
 
 /*
 |--------------------------------------------------------------------------
-| PAYMENT (PUBLIC CALLBACK)
+| PAYMENT (PUBLIC + AUTHENTICATED)
 |--------------------------------------------------------------------------
 */
 Route::prefix('payment')->group(function () {
     Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
     Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus']);
     Route::post('/callback', [PaymentController::class, 'paymentCallback']); // MUST stay public
+    Route::get('/registration/{registrationId}', [PaymentController::class, 'getRegistrationPayment']);
 });
 
 /*
@@ -63,7 +65,7 @@ Route::prefix('payment')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:student'])->group(function () {
-    // Student-only routes later (profile, registration status, etc.)
+    // Student-only routes (profile, view own registration, etc.)
 });
 
 /*
@@ -84,9 +86,12 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
-    //Register 
+    // Registrations
     Route::get('/registers', [RegistrationController::class, 'index']); 
     Route::get('/registers/{id}', [RegistrationController::class, 'show']); 
+    Route::put('/registers/{id}', [RegistrationController::class, 'update']);
+    Route::delete('/registers/{id}', [RegistrationController::class, 'destroy']);
+    
     // Students
     Route::get('/students', [StudentController::class, 'index']);
     Route::get('/students/{id}', [StudentController::class, 'show']);

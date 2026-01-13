@@ -109,7 +109,7 @@ class PaymentController extends Controller
             // Prepare PayWay data
             $data = [
                 'req_time' => now()->format('YmdHis'),
-                'merchant_id' => env('PAYWAY_MERCHANT_ID', 'your_merchant_id'),
+                'merchant_id' => env('PAYWAY_MERCHANT_ID', 'ec463261'),
                 'tran_id' => $tranId,
                 'amount' => number_format($amount, 2, '.', ''),
                 'items' => "Registration Fee - {$registration->major_name}",
@@ -118,7 +118,7 @@ class PaymentController extends Controller
                 'email' => $registration->personal_email ?? '',
                 'phone' => $registration->phone_number ?? '',
                 'purchase_type' => 'Registration Fee',
-                'payment_option' => 'khqr',
+                'payment_option' => 'abapay_khqr',
                 'callback_url' => url('/api/payment/callback'),
                 'return_deeplink' => url('/payment-success'),
                 'currency' => 'USD',
@@ -130,7 +130,7 @@ class PaymentController extends Controller
                 'return_params' => $tranId,
                 'payout' => '',
                 'lifetime' => '300', // 5 minutes
-                'qr_image_template' => 'standard'
+                'qr_image_template' => 'template3_color'
             ];
 
             // Generate hash
@@ -146,6 +146,12 @@ class PaymentController extends Controller
                 $concat .= $data[$f] ?? '';
             }
             $data['hash'] = base64_encode(hash_hmac('sha512', $concat, self::API_KEY, true));
+
+            Log::info('Generating PayWay QR Code', [
+                'registration_id' => $registration->id,
+                'tran_id' => $tranId,
+                'amount' => $amount
+            ]);
 
             // Call PayWay API
             $response = Http::withHeaders(['Content-Type' => 'application/json'])
@@ -173,21 +179,29 @@ class PaymentController extends Controller
                 ->update([
                     'payment_tran_id' => $tranId,
                     'payment_status' => 'PENDING',
+                    'payment_amount' => $amount,
                     'updated_at' => now()
                 ]);
 
             DB::commit();
 
+            // Add transaction details to response
             $result['tran_id'] = $tranId;
             $result['registration_id'] = $registration->id;
             $result['amount'] = $amount;
+
+            Log::info('QR Code generated successfully', [
+                'tran_id' => $tranId,
+                'qr_url' => $result['qr_image_url'] ?? 'not found'
+            ]);
 
             return response()->json($result);
 
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Generate QR error: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to generate QR code'], 500);
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+            return response()->json(['error' => 'Failed to generate QR code: ' . $e->getMessage()], 500);
         }
     }
 
@@ -215,7 +229,8 @@ class PaymentController extends Controller
                 'lang' => 'en',
             ],
             'payment_date' => $registration->payment_date ?? null,
-            'registration_id' => $registration->id ?? null
+            'registration_id' => $registration->id ?? null,
+            'amount' => $transaction->amount ?? null
         ]);
     }
 
@@ -226,6 +241,7 @@ class PaymentController extends Controller
     {
         $registration = DB::table('registrations')
             ->leftJoin('payment_transactions', 'registrations.payment_tran_id', '=', 'payment_transactions.tran_id')
+            ->leftJoin('majors', 'registrations.major_id', '=', 'majors.id')
             ->where('registrations.id', $registrationId)
             ->select(
                 'registrations.id',
@@ -234,7 +250,9 @@ class PaymentController extends Controller
                 'registrations.payment_date',
                 'registrations.payment_tran_id',
                 'payment_transactions.status as transaction_status',
-                'payment_transactions.created_at as transaction_created'
+                'payment_transactions.created_at as transaction_created',
+                'majors.registration_fee',
+                'majors.major_name'
             )
             ->first();
 
