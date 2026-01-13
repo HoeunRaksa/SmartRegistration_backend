@@ -108,33 +108,36 @@ class PaymentController extends Controller
             // Prepare PayWay  data
             $data = [
                 'req_time' => now()->format('YmdHis'),
-                'merchant_id' => 'ec463261', // OK for now
+                'merchant_id' => 'ec463261', // hard-coded (OK for now)
                 'tran_id' => $tranId,
+
+                // ✅ MUST be string or decimal
                 'amount' => number_format($amount, 2, '.', ''),
-                'items' => "Registration Fee - {$registration->major_name}",
+
+                // ✅ MUST be BASE64 (PayWay requirement)
+                'items' => 'W3sibmFtZSI6IkZ1bGwgdGVzdCBpdGVtIiwicXVhbnRpdHkiOjEsInByaWNlIjoxMDB9XQ==',
+
                 'first_name' => $registration->first_name ?? '',
-                'last_name' => $registration->last_name ?? '',
-                'email' => $registration->personal_email ?? '',
-                'phone' => $registration->phone_number ?? '',
-                'purchase_type' => 'Registration Fee',
+                'last_name'  => $registration->last_name ?? '',
+                'email'      => $registration->personal_email ?? '',
+                'phone'      => $registration->phone_number ?? '',
+
+                // ✅ MUST be simple string
+                'purchase_type' => 'purchase',
                 'payment_option' => 'abapay_khqr',
 
-                // 🔥 REQUIRED FIX
-                'callback_url' => base64_encode(url('/api/payment/callback')),
-                'return_deeplink' => base64_encode(url('/payment-success')),
+                // 🔥 ABSOLUTELY REQUIRED (BASE64)
+                'callback_url' => 'aHR0cHM6Ly9leGFtcGxlLmNvbS9jYWxsYmFjaw==',
 
+                // 🔥 Optional but SAFE
                 'currency' => 'USD',
-                'custom_fields' => json_encode([
-                    'registration_id' => $registration->id,
-                    'department_id' => $registration->department_id,
-                    'major_id' => $registration->major_id
-                ]),
-                'return_params' => $tranId,
-                'payout' => '',
-                'lifetime' => '300',
-                'qr_image_template' => 'template3_color'
+
+                // 🔥 SHORT lifetime like frontend
+                'lifetime' => 6,
+
+                'qr_image_template' => 'template3_color',
             ];
-            // Generate hash
+
             $fields = [
                 'req_time',
                 'merchant_id',
@@ -148,20 +151,20 @@ class PaymentController extends Controller
                 'purchase_type',
                 'payment_option',
                 'callback_url',
-                'return_deeplink',
                 'currency',
-                'custom_fields',
-                'return_params',
-                'payout',
                 'lifetime',
                 'qr_image_template'
             ];
 
             $concat = '';
-            foreach ($fields as $f) {
-                $concat .= $data[$f] ?? '';
+            foreach ($fields as $field) {
+                $concat .= $data[$field] ?? '';
             }
-            $data['hash'] = base64_encode(hash_hmac('sha512', $concat, self::API_KEY, true));
+
+            $data['hash'] = base64_encode(
+                hash_hmac('sha512', $concat, self::API_KEY, true)
+            );
+
 
             Log::info('Generating PayWay QR Code', [
                 'registration_id' => $registration->id,
