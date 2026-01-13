@@ -11,7 +11,9 @@ return [
 
     'allowed_origins' => [
         'http://localhost:5173',
+        'http://localhost:5174',           // ✅ ADD THIS - Your current dev port
         'http://127.0.0.1:5173',
+        'http://127.0.0.1:5174',           // ✅ ADD THIS - Alternative localhost
         'https://study.learner-teach.online',
         'https://smart-registration-frontend.vercel.app'
     ],
