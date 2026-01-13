@@ -18,13 +18,19 @@ class MajorController extends Controller
     // POST: /api/majors
     public function store(Request $request)
     {
-        $request->validate([
-            'major_name'     => 'required|string|max:255',
-            'description'    => 'nullable|string',
-            'department_id'  => 'required|exists:departments,id',
+        $validated = $request->validate([
+            'major_name'        => 'required|string|max:255',
+            'description'       => 'nullable|string',
+            'department_id'     => 'required|exists:departments,id',
+            'registration_fee'  => 'nullable|numeric|min:0|max:99999999.99', // Max 10 digits, 2 decimals
         ]);
 
-        $major = Major::create($request->all());
+        // Set default fee if not provided
+        if (!isset($validated['registration_fee'])) {
+            $validated['registration_fee'] = 100.00;
+        }
+
+        $major = Major::create($validated);
 
         return response()->json($major, 201);
     }
@@ -45,13 +51,14 @@ class MajorController extends Controller
     {
         $major = Major::findOrFail($id);
 
-        $request->validate([
-            'major_name'     => 'required|string|max:255',
-            'description'    => 'nullable|string',
-            'department_id'  => 'required|exists:departments,id',
+        $validated = $request->validate([
+            'major_name'        => 'sometimes|required|string|max:255',
+            'description'       => 'nullable|string',
+            'department_id'     => 'sometimes|required|exists:departments,id',
+            'registration_fee'  => 'nullable|numeric|min:0|max:99999999.99',
         ]);
 
-        $major->update($request->all());
+        $major->update($validated);
 
         return response()->json($major);
     }
@@ -62,5 +69,18 @@ class MajorController extends Controller
         Major::findOrFail($id)->delete();
 
         return response()->json(['message' => 'Major deleted']);
+    }
+
+    // GET: /api/majors/{id}/fee - Get registration fee for a specific major
+    public function getFee($id)
+    {
+        $major = Major::findOrFail($id);
+
+        return response()->json([
+            'major_id' => $major->id,
+            'major_name' => $major->major_name,
+            'registration_fee' => $major->registration_fee,
+            'currency' => 'USD'
+        ]);
     }
 }

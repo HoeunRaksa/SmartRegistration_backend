@@ -9,24 +9,14 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
 use App\Models\Student;
 use App\Models\User;
+use App\Models\Major;
 
 class RegistrationController extends Controller
 {
     public function store(Request $request)
     {
         Log::info('Registration request received');
-        Log::info('Has file: ' . ($request->hasFile('profile_picture') ? 'yes' : 'no'));
         
-        if ($request->hasFile('profile_picture')) {
-            $file = $request->file('profile_picture');
-            Log::info('File info:', [
-                'name' => $file->getClientOriginalName(),
-                'mime' => $file->getMimeType(),
-                'size' => $file->getSize(),
-                'valid' => $file->isValid()
-            ]);
-        }
-
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name'  => 'required|string|max:255',
@@ -38,10 +28,10 @@ class RegistrationController extends Controller
             'phone_number' => 'nullable|string|max:20',
             'department_id' => 'required|exists:departments,id',
             'major_id' => 'required|exists:majors,id',
-            // Changed validation to be more flexible
-            'profile_picture' => 'nullable|file|mimes:jpeg,jpg,png|max:5120', // 5MB max
+            'profile_picture' => 'nullable|file|mimes:jpeg,jpg,png|max:5120',
         ]);
 
+        // Check if already registered
         $exists = DB::table('registrations')
             ->when($validated['personal_email'] ?? null, function ($q) use ($validated) {
                 $q->where('personal_email', $validated['personal_email']);
@@ -61,20 +51,20 @@ class RegistrationController extends Controller
         DB::beginTransaction();
 
         try {
+            // Get major to get registration fee
+            $major = Major::findOrFail($request->major_id);
+            
             $profilePicturePath = null;
             if ($request->hasFile('profile_picture') && $request->file('profile_picture')->isValid()) {
-                // Create directory if not exists
                 $uploadPath = public_path('uploads/profiles');
                 if (!File::exists($uploadPath)) {
                     File::makeDirectory($uploadPath, 0755, true);
                 }
 
-                // Generate unique filename
                 $image = $request->file('profile_picture');
                 $extension = $image->getClientOriginalExtension();
                 $filename = time() . '_' . uniqid() . '.' . $extension;
                 
-                // Move to public directory
                 $image->move($uploadPath, $filename);
                 $profilePicturePath = 'uploads/profiles/' . $filename;
                 
@@ -85,7 +75,6 @@ class RegistrationController extends Controller
             $fullNameEn = $request->full_name_en ?? ($request->first_name . ' ' . $request->last_name);
             $fullNameKh = $request->full_name_kh ?? ($request->first_name . ' ' . $request->last_name);
 
-            // ✅ ALL COLUMNS FROM IMAGE
             $registrationData = [
                 // Personal Info
                 'first_name' => $request->first_name,
@@ -111,18 +100,15 @@ class RegistrationController extends Controller
                 'shift' => $request->shift,
                 'batch' => $request->batch,
                 'academic_year' => $request->academic_year,
-                
-                // Profile Picture
                 'profile_picture_path' => $profilePicturePath,
                 
-                // Father Info
+                // Parent Info
                 'father_name' => $request->father_name,
                 'fathers_date_of_birth' => $request->fathers_date_of_birth,
                 'fathers_nationality' => $request->fathers_nationality,
                 'fathers_job' => $request->fathers_job,
                 'fathers_phone_number' => $request->fathers_phone_number,
                 
-                // Mother Info
                 'mother_name' => $request->mother_name,
                 'mother_date_of_birth' => $request->mother_date_of_birth,
                 'mother_nationality' => $request->mother_nationality,
@@ -132,10 +118,12 @@ class RegistrationController extends Controller
                 // Guardian Info
                 'guardian_name' => $request->guardian_name,
                 'guardian_phone_number' => $request->guardian_phone_number,
-                
-                // Emergency Contact
                 'emergency_contact_name' => $request->emergency_contact_name,
                 'emergency_contact_phone_number' => $request->emergency_contact_phone_number,
+                
+                // Payment Info (from major)
+                'payment_amount' => $major->registration_fee,
+                'payment_status' => 'PENDING',
                 
                 // Timestamps
                 'created_at' => now(),
@@ -183,6 +171,8 @@ class RegistrationController extends Controller
                     'student_id' => $student->id,
                     'student_code' => $student->student_code,
                     'user_id' => $user->id,
+                    'payment_amount' => $major->registration_fee,
+                    'payment_status' => 'PENDING',
                     'profile_picture_path' => $profilePicturePath,
                 ],
                 'student_account' => [
@@ -190,14 +180,12 @@ class RegistrationController extends Controller
                     'password' => $plainPassword,
                     'role' => 'student',
                     'student_code' => $student->student_code,
-                    'profile_picture_path' => $profilePicturePath,
                 ]
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
 
-            // Delete uploaded image if exists
             if ($profilePicturePath && File::exists(public_path($profilePicturePath))) {
                 File::delete(public_path($profilePicturePath));
             }
@@ -218,9 +206,26 @@ class RegistrationController extends Controller
             ->join('departments', 'registrations.department_id', '=', 'departments.id')
             ->join('majors', 'registrations.major_id', '=', 'majors.id')
             ->leftJoin('students', 'registrations.id', '=', 'students.registration_id')
-            ->select('registrations.*', 'departments.name as department_name', 'majors.major_name', 'students.student_code', 'students.id as student_id')
+            ->leftJoin('payment_transactions', 'registrations.payment_tran_id', '=', 'payment_transactions.tran_id')
+            ->select(
+                'registrations.*',
+                'departments.name as department_name',
+                'majors.major_name',
+                'majors.registration_fee',
+                'students.student_code',
+                'students.id as student_id',
+                'payment_transactions.status as transaction_status'
+            )
             ->orderBy('registrations.created_at', 'desc')
             ->get();
+
+        // Add profile picture URL
+        $registrations = $registrations->map(function($reg) {
+            if ($reg->profile_picture_path) {
+                $reg->profile_picture_url = url($reg->profile_picture_path);
+            }
+            return $reg;
+        });
 
         return response()->json(['success' => true, 'data' => $registrations]);
     }
@@ -232,12 +237,26 @@ class RegistrationController extends Controller
             ->join('majors', 'registrations.major_id', '=', 'majors.id')
             ->leftJoin('students', 'registrations.id', '=', 'students.registration_id')
             ->leftJoin('users', 'students.user_id', '=', 'users.id')
+            ->leftJoin('payment_transactions', 'registrations.payment_tran_id', '=', 'payment_transactions.tran_id')
             ->where('registrations.id', $id)
-            ->select('registrations.*', 'departments.name as department_name', 'majors.major_name', 'students.student_code', 'students.id as student_id', 'users.email as student_email')
+            ->select(
+                'registrations.*',
+                'departments.name as department_name',
+                'majors.major_name',
+                'majors.registration_fee',
+                'students.student_code',
+                'students.id as student_id',
+                'users.email as student_email',
+                'payment_transactions.status as transaction_status'
+            )
             ->first();
 
         if (!$registration) {
             return response()->json(['success' => false, 'message' => 'Registration not found'], 404);
+        }
+
+        if ($registration->profile_picture_path) {
+            $registration->profile_picture_url = url($registration->profile_picture_path);
         }
 
         return response()->json(['success' => true, 'data' => $registration]);
@@ -271,7 +290,6 @@ class RegistrationController extends Controller
             $newProfilePicturePath = null;
 
             if ($request->hasFile('profile_picture') && $request->file('profile_picture')->isValid()) {
-                // Delete old image
                 if ($registration->profile_picture_path) {
                     $oldPath = public_path($registration->profile_picture_path);
                     if (File::exists($oldPath)) {
@@ -279,20 +297,23 @@ class RegistrationController extends Controller
                     }
                 }
 
-                // Create directory if not exists
                 $uploadPath = public_path('uploads/profiles');
                 if (!File::exists($uploadPath)) {
                     File::makeDirectory($uploadPath, 0755, true);
                 }
 
-                // Generate unique filename
                 $image = $request->file('profile_picture');
                 $filename = time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
                 
-                // Move to public directory
                 $image->move($uploadPath, $filename);
                 $newProfilePicturePath = 'uploads/profiles/' . $filename;
                 $validated['profile_picture_path'] = $newProfilePicturePath;
+            }
+
+            // Update payment amount if major changed
+            if (isset($validated['major_id'])) {
+                $major = Major::findOrFail($validated['major_id']);
+                $validated['payment_amount'] = $major->registration_fee;
             }
 
             if (isset($validated['first_name']) || isset($validated['last_name'])) {
@@ -333,19 +354,25 @@ class RegistrationController extends Controller
 
             DB::commit();
 
-            return response()->json(['success' => true, 'message' => 'Registration updated successfully', 'profile_picture_path' => $newProfilePicturePath]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Registration updated successfully',
+                'profile_picture_path' => $newProfilePicturePath
+            ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
 
-            // Delete uploaded image if exists
             if (isset($newProfilePicturePath) && $newProfilePicturePath && File::exists(public_path($newProfilePicturePath))) {
                 File::delete(public_path($newProfilePicturePath));
             }
 
             Log::error('Update error: ' . $e->getMessage());
 
-            return response()->json(['success' => false, 'message' => 'Update failed: ' . $e->getMessage()], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'Update failed: ' . $e->getMessage()
+            ], 500);
         }
     }
 
@@ -368,7 +395,6 @@ class RegistrationController extends Controller
                 $student->delete();
             }
 
-            // Delete profile image
             if ($registration->profile_picture_path) {
                 $filePath = public_path($registration->profile_picture_path);
                 if (File::exists($filePath)) {
@@ -385,7 +411,10 @@ class RegistrationController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Delete error: ' . $e->getMessage());
-            return response()->json(['success' => false, 'message' => 'Delete failed: ' . $e->getMessage()], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'Delete failed: ' . $e->getMessage()
+            ], 500);
         }
     }
 }
