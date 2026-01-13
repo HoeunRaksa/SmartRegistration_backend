@@ -110,7 +110,7 @@ class PaymentController extends Controller
                 'purchase_type',
                 'payment_option',
                 'callback_url',
-                'return_deeplink',
+                'return_url',
                 'currency',
                 'lifetime',
                 'qr_image_template'
