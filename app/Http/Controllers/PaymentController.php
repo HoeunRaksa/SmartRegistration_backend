@@ -29,7 +29,6 @@ class PaymentController extends Controller
         DB::beginTransaction();
         
         try {
-            // Update payment_transactions table
             DB::table('payment_transactions')->updateOrInsert(
                 ['tran_id' => $tranId],
                 [
@@ -39,7 +38,6 @@ class PaymentController extends Controller
                 ]
             );
 
-            // Update registration payment status
             if ($newStatus === 'PAID') {
                 DB::table('registrations')
                     ->where('payment_tran_id', $tranId)
@@ -85,7 +83,6 @@ class PaymentController extends Controller
         DB::beginTransaction();
 
         try {
-            // Get registration with major fee
             $registration = DB::table('registrations')
                 ->join('majors', 'registrations.major_id', '=', 'majors.id')
                 ->where('registrations.id', $validated['registration_id'])
@@ -97,16 +94,54 @@ class PaymentController extends Controller
             }
 
             if ($registration->payment_status === 'PAID') {
-                return response()->json([
-                    'error' => 'Registration fee already paid'
-                ], 400);
+                return response()->json(['error' => 'Registration fee already paid'], 400);
             }
 
-            // Generate unique transaction ID
             $tranId = 'REG-' . $registration->id . '-' . time();
             $amount = $registration->payment_amount ?? $registration->registration_fee;
 
-            // Prepare PayWay data
+            // 🔥 DEVELOPMENT MODE: Skip actual PayWay API call
+            if (env('APP_ENV') === 'local' || env('PAYMENT_MODE') === 'development') {
+                Log::info('DEVELOPMENT MODE: Generating mock QR code', [
+                    'registration_id' => $registration->id,
+                    'tran_id' => $tranId,
+                    'amount' => $amount
+                ]);
+
+                // Generate mock QR string (KHQR format)
+                $mockQrString = $this->generateMockKHQR($tranId, $amount);
+
+                // Create payment transaction
+                DB::table('payment_transactions')->insert([
+                    'tran_id' => $tranId,
+                    'status' => 'PENDING',
+                    'amount' => $amount,
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+
+                // Link to registration
+                DB::table('registrations')
+                    ->where('id', $registration->id)
+                    ->update([
+                        'payment_tran_id' => $tranId,
+                        'payment_status' => 'PENDING',
+                        'payment_amount' => $amount,
+                        'updated_at' => now()
+                    ]);
+
+                DB::commit();
+
+                return response()->json([
+                    'qr_string' => $mockQrString,
+                    'tran_id' => $tranId,
+                    'registration_id' => $registration->id,
+                    'amount' => $amount,
+                    'mode' => 'development'
+                ]);
+            }
+
+            // 🔥 PRODUCTION MODE: Call actual PayWay API
             $data = [
                 'req_time' => now()->format('YmdHis'),
                 'merchant_id' => env('PAYWAY_MERCHANT_ID', 'ec463261'),
@@ -129,11 +164,10 @@ class PaymentController extends Controller
                 ]),
                 'return_params' => $tranId,
                 'payout' => '',
-                'lifetime' => '300', // 5 minutes
+                'lifetime' => '300',
                 'qr_image_template' => 'template3_color'
             ];
 
-            // Generate hash
             $fields = [
                 'req_time', 'merchant_id', 'tran_id', 'amount', 'items',
                 'first_name', 'last_name', 'email', 'phone', 'purchase_type',
@@ -147,13 +181,8 @@ class PaymentController extends Controller
             }
             $data['hash'] = base64_encode(hash_hmac('sha512', $concat, self::API_KEY, true));
 
-            Log::info('Generating PayWay QR Code', [
-                'registration_id' => $registration->id,
-                'tran_id' => $tranId,
-                'amount' => $amount
-            ]);
+            Log::info('Calling PayWay API', ['tran_id' => $tranId]);
 
-            // Call PayWay API
             $response = Http::withHeaders(['Content-Type' => 'application/json'])
                 ->post(self::PAYWAY_SANDBOX_URL . 'generate-qr', $data);
 
@@ -164,7 +193,6 @@ class PaymentController extends Controller
 
             $result = $response->json();
 
-            // Create payment transaction record
             DB::table('payment_transactions')->insert([
                 'tran_id' => $tranId,
                 'status' => 'PENDING',
@@ -173,7 +201,6 @@ class PaymentController extends Controller
                 'updated_at' => now()
             ]);
 
-            // Link transaction to registration
             DB::table('registrations')
                 ->where('id', $registration->id)
                 ->update([
@@ -185,24 +212,29 @@ class PaymentController extends Controller
 
             DB::commit();
 
-            // Add transaction details to response
             $result['tran_id'] = $tranId;
             $result['registration_id'] = $registration->id;
             $result['amount'] = $amount;
-
-            Log::info('QR Code generated successfully', [
-                'tran_id' => $tranId,
-                'qr_url' => $result['qr_image_url'] ?? 'not found'
-            ]);
 
             return response()->json($result);
 
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Generate QR error: ' . $e->getMessage());
-            Log::error('Stack trace: ' . $e->getTraceAsString());
             return response()->json(['error' => 'Failed to generate QR code: ' . $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Generate mock KHQR string for development
+     */
+    private function generateMockKHQR($tranId, $amount)
+    {
+        // Mock KHQR format (simplified)
+        return "00020101021129370010A000000727012400069990011234567890210" . 
+               str_pad((string)($amount * 100), 10, '0', STR_PAD_LEFT) .
+               "5802KH5912Test Merchant6010Phnom Penh99" .
+               str_pad(strlen($tranId), 2, '0', STR_PAD_LEFT) . $tranId . "6304";
     }
 
     /**
@@ -216,7 +248,6 @@ class PaymentController extends Controller
 
         $status = $transaction->status ?? 'PENDING';
 
-        // Also return registration info
         $registration = DB::table('registrations')
             ->where('payment_tran_id', $tranId)
             ->first();
@@ -232,6 +263,38 @@ class PaymentController extends Controller
             'registration_id' => $registration->id ?? null,
             'amount' => $transaction->amount ?? null
         ]);
+    }
+
+    /**
+     * DEVELOPMENT ONLY: Manually mark payment as PAID
+     */
+    public function devMarkAsPaid($tranId)
+    {
+        if (env('APP_ENV') !== 'local') {
+            return response()->json(['error' => 'Not allowed in production'], 403);
+        }
+
+        DB::beginTransaction();
+        try {
+            DB::table('payment_transactions')
+                ->where('tran_id', $tranId)
+                ->update(['status' => 'PAID', 'updated_at' => now()]);
+
+            DB::table('registrations')
+                ->where('payment_tran_id', $tranId)
+                ->update([
+                    'payment_status' => 'PAID',
+                    'payment_date' => now(),
+                    'updated_at' => now()
+                ]);
+
+            DB::commit();
+
+            return response()->json(['success' => true, 'message' => 'Marked as PAID']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
     }
 
     /**
