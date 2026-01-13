@@ -31,5 +31,5 @@ return [
     'max_age' => 0,
 
     // 🔑 IMPORTANT (you are using cookies / auth)
-    'supports_credentials' => true,
+    'supports_credentials' => false,
 ];
