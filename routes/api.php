@@ -84,6 +84,8 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
+    //Register 
+    Route::get('/registers', [RegistrationController::class, 'index']); 
     // Students
     Route::get('/students', [StudentController::class, 'index']);
     Route::get('/students/{id}', [StudentController::class, 'show']);
