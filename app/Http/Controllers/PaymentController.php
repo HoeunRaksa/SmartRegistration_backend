@@ -39,6 +39,24 @@ class PaymentController extends Controller
             // Generate unique transaction ID
             $tranId = 'REG-' . $registration->id . '-' . time();
             $amount = $registration->payment_amount ?? $registration->registration_fee;
+            $rawPhone = $registration->phone_number ?? '';
+
+            // Remove all non-numeric characters
+            $phone = preg_replace('/\D/', '', $rawPhone);
+
+            // Convert Cambodia local format to international
+            // 012345678 → 85512345678
+            if (strlen($phone) === 9 && str_starts_with($phone, '0')) {
+                $phone = '855' . substr($phone, 1);
+            }
+
+            // Safety fallback (ABA REQUIRES phone)
+            if (empty($phone)) {
+                return response()->json([
+                    'error' => 'Invalid phone number for payment'
+                ], 422);
+            }
+
 
             // Prepare PayWay data - EXACT structure they need
             $paymentData = [
@@ -58,7 +76,7 @@ class PaymentController extends Controller
                 'first_name' => $registration->first_name ?? '',
                 'last_name'  => $registration->last_name ?? '',
                 'email'      => $registration->personal_email ?? '',
-                'phone'      => $registration->phone_number ?? '',
+                'phone'      => $phone,
 
                 'purchase_type'  => 'purchase',
                 'payment_option' => 'abapay_khqr',
