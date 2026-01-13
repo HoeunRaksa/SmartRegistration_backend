@@ -11,13 +11,7 @@ use Symfony\Component\HttpFoundation\Response;
 class PaymentController extends Controller
 {
     private const API_KEY = 'bf2e45817599c11dcba44490cad0823a4fd0ee8c';
-    private const MERCHANT_ID = 'ec463261';
     private const PAYWAY_SANDBOX_URL = 'https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/';
-
-    /**
-     * Generate QR code for registration payment
-     * This matches PayWay's exact API structure
-     */
     public function generateQr(Request $request)
     {
         $validated = $request->validate([
@@ -49,11 +43,10 @@ class PaymentController extends Controller
             // Prepare PayWay data - EXACT structure they need
             $paymentData = [
                 'req_time' => now()->format('YmdHis'),
-                'merchant_id' => 'ec463261',
+                'merchant_id' => config('payway.merchant_id'),
                 'tran_id' => $tranId,
                 'amount' => number_format($amount, 2, '.', ''),
 
-                // ✅ MUST be base64 JSON
                 'items' => base64_encode(json_encode([
                     [
                         'name' => 'Registration Fee',
@@ -70,9 +63,9 @@ class PaymentController extends Controller
                 'purchase_type'  => 'purchase',
                 'payment_option' => 'abapay_khqr',
 
-                // ✅ REQUIRED BASE64
-                'callback_url'   => base64_encode(env('PAYWAY_CALLBACK_URL')),
-                'return_deeplink' => base64_encode(env('PAYWAY_RETURN_URL')),
+                // ✅ MUST be base64
+                'callback_url'    => base64_encode(config('payway.callback')),
+                'return_deeplink' => base64_encode(config('payway.return')),
 
                 'currency' => 'USD',
                 'lifetime' => '300',
@@ -80,23 +73,26 @@ class PaymentController extends Controller
             ];
 
 
+
             // Generate hash - EXACT order matters
             $hashFields = [
                 'req_time',
                 'merchant_id',
                 'tran_id',
+                'amount',
+                'items',
                 'first_name',
                 'last_name',
                 'email',
                 'phone',
-                'amount',
                 'purchase_type',
                 'payment_option',
-                'items',
-                'currency',
                 'callback_url',
+                'return_deeplink',
+                'currency',
                 'lifetime',
                 'qr_image_template'
+
             ];
 
             $hashString = '';
@@ -104,7 +100,15 @@ class PaymentController extends Controller
                 $hashString .= $paymentData[$field] ?? '';
             }
 
-            $paymentData['hash'] = base64_encode(hash_hmac('sha512', $hashString, self::API_KEY, true));
+            $paymentData['hash'] = base64_encode(
+                hash_hmac(
+                    'sha512',
+                    $hashString,
+                    config('payway.api_key'),
+                    true
+                )
+            );
+
 
             Log::info('PayWay Request:', [
                 'tran_id' => $tranId,
@@ -115,8 +119,10 @@ class PaymentController extends Controller
             // Call PayWay API
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json'
-            ])->post(self::PAYWAY_SANDBOX_URL . 'generate-qr', $paymentData);
-
+            ])->post(
+                config('payway.base_url') . 'generate-qr',
+                $paymentData
+            );
             if (!$response->successful()) {
                 Log::error('PayWay API Error:', [
                     'status' => $response->status(),

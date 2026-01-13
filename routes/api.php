@@ -59,6 +59,7 @@ Route::prefix('payment')->group(function () {
     Route::get('/registration/{registrationId}', [PaymentController::class, 'getRegistrationPayment']);
 });
 
+
 /*
 |--------------------------------------------------------------------------
 | STUDENT ROUTES (LOGIN REQUIRED)
@@ -134,12 +135,3 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 | DEBUG (REMOVE IN PRODUCTION)
 |--------------------------------------------------------------------------
 */
-Route::post('/staffs-test', function (Request $request) {
-    return response()->json([
-        'method' => $request->method(),
-        'content_type' => $request->header('Content-Type'),
-        'all' => $request->all(),
-        'files' => $request->allFiles(),
-        'raw' => $request->getContent(),
-    ]);
-});
