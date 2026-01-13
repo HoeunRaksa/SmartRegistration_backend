@@ -52,12 +52,15 @@ Route::get('/subjects/{id}', [SubjectController::class, 'show']);
 | PAYMENT (PUBLIC + AUTHENTICATED)
 |--------------------------------------------------------------------------
 */
-Route::middleware('throttle:none')->prefix('payment')->group(function () {
-    Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
-    Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus']);
-    Route::post('/callback', [PaymentController::class, 'paymentCallback']);
-    Route::get('/registration/{registrationId}', [PaymentController::class, 'getRegistrationPayment']);
-});
+Route::prefix('payment')
+    ->middleware([]) // 👈 NO throttle, NO sanctum
+    ->group(function () {
+        Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
+        Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus']);
+        Route::post('/callback', [PaymentController::class, 'paymentCallback']);
+        Route::get('/registration/{registrationId}', [PaymentController::class, 'getRegistrationPayment']);
+    });
+
 
 
 
