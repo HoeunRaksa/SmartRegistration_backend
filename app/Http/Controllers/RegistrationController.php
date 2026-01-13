@@ -14,7 +14,18 @@ class RegistrationController extends Controller
 {
     public function store(Request $request)
     {
-        Log::info('Registration request', $request->all());
+        Log::info('Registration request received');
+        Log::info('Has file: ' . ($request->hasFile('profile_picture') ? 'yes' : 'no'));
+        
+        if ($request->hasFile('profile_picture')) {
+            $file = $request->file('profile_picture');
+            Log::info('File info:', [
+                'name' => $file->getClientOriginalName(),
+                'mime' => $file->getMimeType(),
+                'size' => $file->getSize(),
+                'valid' => $file->isValid()
+            ]);
+        }
 
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
@@ -27,7 +38,8 @@ class RegistrationController extends Controller
             'phone_number' => 'nullable|string|max:20',
             'department_id' => 'required|exists:departments,id',
             'major_id' => 'required|exists:majors,id',
-            'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png|max:10240',
+            // Changed validation to be more flexible
+            'profile_picture' => 'nullable|file|mimes:jpeg,jpg,png|max:5120', // 5MB max
         ]);
 
         $exists = DB::table('registrations')
@@ -50,7 +62,7 @@ class RegistrationController extends Controller
 
         try {
             $profilePicturePath = null;
-            if ($request->hasFile('profile_picture')) {
+            if ($request->hasFile('profile_picture') && $request->file('profile_picture')->isValid()) {
                 // Create directory if not exists
                 $uploadPath = public_path('uploads/profiles');
                 if (!File::exists($uploadPath)) {
@@ -59,11 +71,14 @@ class RegistrationController extends Controller
 
                 // Generate unique filename
                 $image = $request->file('profile_picture');
-                $filename = time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
+                $extension = $image->getClientOriginalExtension();
+                $filename = time() . '_' . uniqid() . '.' . $extension;
                 
                 // Move to public directory
                 $image->move($uploadPath, $filename);
                 $profilePicturePath = 'uploads/profiles/' . $filename;
+                
+                Log::info('Profile picture uploaded successfully: ' . $profilePicturePath);
             }
 
             $plainPassword = 'novatech' . now()->format('Ymd');
@@ -188,6 +203,7 @@ class RegistrationController extends Controller
             }
 
             Log::error('Registration error: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
 
             return response()->json([
                 'success' => false,
@@ -246,7 +262,7 @@ class RegistrationController extends Controller
             'phone_number' => 'nullable|string|max:20',
             'department_id' => 'sometimes|required|exists:departments,id',
             'major_id' => 'sometimes|required|exists:majors,id',
-            'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png|max:10240',
+            'profile_picture' => 'nullable|file|mimes:jpeg,jpg,png|max:5120',
         ]);
 
         DB::beginTransaction();
@@ -254,7 +270,7 @@ class RegistrationController extends Controller
         try {
             $newProfilePicturePath = null;
 
-            if ($request->hasFile('profile_picture')) {
+            if ($request->hasFile('profile_picture') && $request->file('profile_picture')->isValid()) {
                 // Delete old image
                 if ($registration->profile_picture_path) {
                     $oldPath = public_path($registration->profile_picture_path);
@@ -327,6 +343,8 @@ class RegistrationController extends Controller
                 File::delete(public_path($newProfilePicturePath));
             }
 
+            Log::error('Update error: ' . $e->getMessage());
+
             return response()->json(['success' => false, 'message' => 'Update failed: ' . $e->getMessage()], 500);
         }
     }
@@ -366,6 +384,7 @@ class RegistrationController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error('Delete error: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => 'Delete failed: ' . $e->getMessage()], 500);
         }
     }
