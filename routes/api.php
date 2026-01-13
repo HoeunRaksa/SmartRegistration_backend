@@ -52,15 +52,12 @@ Route::get('/subjects/{id}', [SubjectController::class, 'show']);
 | PAYMENT (PUBLIC + AUTHENTICATED)
 |--------------------------------------------------------------------------
 */
-Route::prefix('payment')
-    ->middleware([]) // 🔥 FORCE NO MIDDLEWARE
-    ->group(function () {
-        Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
-        Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus']);
-        Route::post('/callback', [PaymentController::class, 'paymentCallback']);
-        Route::get('/registration/{registrationId}', [PaymentController::class, 'getRegistrationPayment']);
-    });
-
+Route::prefix('payment')->group(function () {
+    Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
+    Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus']);
+    Route::post('/callback', [PaymentController::class, 'paymentCallback']); // MUST stay public
+    Route::get('/registration/{registrationId}', [PaymentController::class, 'getRegistrationPayment']);
+});
 
 
 /*
