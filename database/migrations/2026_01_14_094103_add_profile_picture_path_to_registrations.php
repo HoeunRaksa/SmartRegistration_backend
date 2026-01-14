@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::table('registrations', function (Blueprint $table) {
             $table->string('profile_picture_path', 255)
                   ->nullable()
-                  ->change(); // 👈 MODIFY, not ADD
+                  ->change();
         });
     }
 
