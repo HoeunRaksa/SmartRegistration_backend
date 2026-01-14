@@ -13,6 +13,8 @@ class PaymentController extends Controller
 {
     public function generateQr(Request $request)
     {
+        Log::info('🔥 generateQr hit');
+
         $validated = $request->validate([
             'registration_id' => 'required|exists:registrations,id'
         ]);
