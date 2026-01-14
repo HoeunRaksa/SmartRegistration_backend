@@ -30,20 +30,25 @@ class PaymentController extends Controller
                 return response()->json(['error' => 'Invalid registration'], 400);
             }
 
-            // ===== Required fields =====
+            /* ================= REQUIRED FIELDS ================= */
+
             $reqTime    = now()->utc()->format('YmdHis');
             $merchantId = config('payway.merchant_id');
             $tranId     = 'REG-' . $registration->id . '-' . time();
             $amount     = number_format($registration->registration_fee, 2, '.', '');
             $currency   = 'USD';
 
-            // ===== Optional payer info =====
-            $firstName = $registration->first_name ?? '';
-            $lastName  = $registration->last_name ?? '';
-            $email     = $registration->personal_email ?? '';
-            $phone     = $registration->phone_number ?? '';
+            /* ================= OPTIONAL PAYER INFO ================= */
 
-            // ===== Base64 fields =====
+            $firstName = trim($registration->first_name ?? '');
+            $lastName  = trim($registration->last_name ?? '');
+            $email     = trim($registration->personal_email ?? '');
+
+            // 🔴 MUST be digits only
+            $phone = preg_replace('/\D/', '', $registration->phone_number ?? '');
+
+            /* ================= BASE64 FIELDS ================= */
+
             $items = base64_encode(json_encode([
                 [
                     'name'     => 'Registration Fee',
@@ -62,9 +67,8 @@ class PaymentController extends Controller
             $purchaseType     = 'purchase';
             $paymentOption    = 'abapay_khqr';
 
-            // =====================================================
-            // 🔐 HASH STRING (EXACT ORDER FROM ABA DOC)
-            // =====================================================
+            /* ================= HASH STRING (EXACT ORDER) ================= */
+
             $hashString =
                 $reqTime .
                 $merchantId .
@@ -78,14 +82,13 @@ class PaymentController extends Controller
                 $purchaseType .
                 $paymentOption .
                 $callbackUrl .
-                $returnDeeplink .   // "" ← NOT null
+                $returnDeeplink .
                 $currency .
-                $customFields .     // ""
-                $returnParams .     // ""
-                $payout .           // ""
+                $customFields .
+                $returnParams .
+                $payout .
                 $lifetime .
                 $qrImageTemplate;
-
 
             $hash = base64_encode(
                 hash_hmac(
@@ -96,7 +99,8 @@ class PaymentController extends Controller
                 )
             );
 
-            // ===== Payload =====
+            /* ================= PAYLOAD ================= */
+
             $payload = [
                 'req_time'          => $reqTime,
                 'merchant_id'       => $merchantId,
@@ -105,13 +109,13 @@ class PaymentController extends Controller
                 'last_name'         => $lastName,
                 'email'             => $email,
                 'phone'             => $phone,
-                'amount'            => (float) $amount,
+                'amount'            => $amount, // 🔴 STRING, NOT FLOAT
                 'purchase_type'     => $purchaseType,
                 'payment_option'    => $paymentOption,
                 'items'             => $items,
                 'currency'          => $currency,
                 'callback_url'      => $callbackUrl,
-                'return_deeplink'   => '',   // ← empty string
+                'return_deeplink'   => '',
                 'custom_fields'     => '',
                 'return_params'     => '',
                 'payout'            => '',
@@ -120,8 +124,8 @@ class PaymentController extends Controller
                 'hash'              => $hash,
             ];
 
+            /* ================= CALL ABA QR API ================= */
 
-            // ===== Call ABA QR API =====
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json'
             ])->post(
@@ -133,6 +137,7 @@ class PaymentController extends Controller
                 Log::error('ABA QR Error', [
                     'status' => $response->status(),
                     'body'   => $response->body(),
+                    'hash_string_length' => strlen($hashString)
                 ]);
                 return response()->json($response->json(), 403);
             }
@@ -143,6 +148,7 @@ class PaymentController extends Controller
                 'tran_id' => $tranId,
                 'qr'      => $response->json()
             ]);
+
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error($e->getMessage());
