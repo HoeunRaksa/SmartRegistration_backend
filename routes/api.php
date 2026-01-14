@@ -55,27 +55,13 @@ Route::get('/subjects/{id}', [SubjectController::class, 'show']);
 */
 Route::prefix('payment')->group(function () {
 
-    // ✅ PUBLIC – NO LOGIN, NO TOKEN
-    Route::post('/generate-qr', [PaymentController::class, 'generateQr'])
-        ->withoutMiddleware([
-            'auth:sanctum',
-            EnsureFrontendRequestsAreStateful::class,
-            ThrottleRequests::class,
-        ]);
+    // ✅ PUBLIC – NO AUTH – NO TOKEN – NO ROLE
+    Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
 
-    // (optional public)
-    Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus'])
-        ->withoutMiddleware([
-            'auth:sanctum',
-            EnsureFrontendRequestsAreStateful::class,
-        ]);
+    Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus']);
 
-    // ✅ Webhook (already correct)
-    Route::post('/callback', [PaymentController::class, 'paymentCallback'])
-        ->withoutMiddleware([
-            EnsureFrontendRequestsAreStateful::class,
-            ThrottleRequests::class,
-        ]);
+    // ✅ PUBLIC WEBHOOK
+    Route::post('/callback', [PaymentController::class, 'paymentCallback']);
 });
 
 
