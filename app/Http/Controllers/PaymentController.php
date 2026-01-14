@@ -7,11 +7,10 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
+use App\Models\User;
 
 class PaymentController extends Controller
 {
-    private const API_KEY = 'bf2e45817599c11dcba44490cad0823a4fd0ee8c';
-    private const PAYWAY_SANDBOX_URL = 'https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/';
     public function generateQr(Request $request)
     {
         $validated = $request->validate([
@@ -49,16 +48,11 @@ class PaymentController extends Controller
             if (strlen($phone) === 9 && str_starts_with($phone, '0')) {
                 $phone = '855' . substr($phone, 1);
             }
-
-            // Safety fallback (ABA REQUIRES phone)
             if (empty($phone)) {
                 return response()->json([
                     'error' => 'Invalid phone number for payment'
                 ], 422);
             }
-
-
-            // Prepare PayWay data - EXACT structure they need
             $paymentData = [
                 'req_time' => now()->format('YmdHis'),
                 'merchant_id' => config('payway.merchant_id'),
@@ -72,12 +66,10 @@ class PaymentController extends Controller
                         'price' => $amount
                     ]
                 ])),
-
                 'first_name' => $registration->first_name ?? '',
                 'last_name'  => $registration->last_name ?? '',
                 'email'      => $registration->personal_email ?? '',
                 'phone'      => $phone,
-
                 'purchase_type'  => 'purchase',
                 'payment_option' => 'abapay_khqr',
                 'callback_url' => base64_encode(config('payway.callback')),
@@ -86,11 +78,6 @@ class PaymentController extends Controller
                 'lifetime' => '300',
                 'qr_image_template' => 'template3_color'
             ];
-
-
-
-
-            // Generate hash - EXACT order matters
             $hashFields = [
                 'req_time',
                 'merchant_id',
@@ -228,14 +215,37 @@ class PaymentController extends Controller
 
             // Update registration
             if ($newStatus === 'PAID') {
-                DB::table('registrations')
+
+                // 1️⃣ Get registration
+                $registration = DB::table('registrations')
                     ->where('payment_tran_id', $tranId)
-                    ->update([
-                        'payment_status' => 'PAID',
-                        'payment_date' => now(),
-                        'updated_at' => now()
-                    ]);
+                    ->first();
+
+                if ($registration) {
+
+                    // 2️⃣ Get student
+                    $student = DB::table('students')
+                        ->where('registration_id', $registration->id)
+                        ->first();
+
+                    if ($student) {
+                        // 3️⃣ Upgrade user role
+                        User::where('id', $student->user_id)->update([
+                            'role' => 'student'
+                        ]);
+                    }
+
+                    // 4️⃣ Update registration payment status
+                    DB::table('registrations')
+                        ->where('id', $registration->id)
+                        ->update([
+                            'payment_status' => 'PAID',
+                            'payment_date' => now(),
+                            'updated_at' => now()
+                        ]);
+                }
             } else {
+
                 DB::table('registrations')
                     ->where('payment_tran_id', $tranId)
                     ->update([
@@ -243,6 +253,7 @@ class PaymentController extends Controller
                         'updated_at' => now()
                     ]);
             }
+
 
             DB::commit();
 

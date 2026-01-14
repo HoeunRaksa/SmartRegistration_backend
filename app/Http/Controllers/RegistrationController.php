@@ -140,7 +140,7 @@ class RegistrationController extends Controller
                 'name' => $fullNameEn,
                 'email' => $request->personal_email,
                 'password' => Hash::make($plainPassword),
-                'role' => 'student',
+                'role' => 'register',
                 'profile_picture_path' => $profilePicturePath,
             ]);
 
