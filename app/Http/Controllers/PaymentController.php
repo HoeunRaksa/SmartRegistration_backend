@@ -6,14 +6,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use App\Models\User;
 
 class PaymentController extends Controller
 {
     public function generateQr(Request $request)
     {
         Log::info('🔥 generateQr hit');
-
 
         $request->validate([
             'registration_id' => 'required|exists:registrations,id'
@@ -32,160 +30,122 @@ class PaymentController extends Controller
                 return response()->json(['error' => 'Invalid registration'], 400);
             }
 
-            $tranId = 'REG-' . $registration->id . '-' . time();
-            $amount = number_format(
-                $registration->payment_amount ?? $registration->registration_fee,
-                2,
-                '.',
-                ''
-            );
+            // ===== Required fields =====
+            $reqTime    = now()->utc()->format('YmdHis');
+            $merchantId = config('payway.merchant_id');
+            $tranId     = 'REG-' . $registration->id . '-' . time();
+            $amount     = number_format($registration->registration_fee, 2, '.', '');
+            $currency   = 'USD';
 
-            $phone = preg_replace('/\D/', '', $registration->phone_number ?? '');
-            if (str_starts_with($phone, '0')) {
-                $phone = '855' . substr($phone, 1);
-            }
+            // ===== Optional payer info =====
+            $firstName = $registration->first_name ?? '';
+            $lastName  = $registration->last_name ?? '';
+            $email     = $registration->personal_email ?? '';
+            $phone     = $registration->phone_number ?? '';
 
-            $items = json_encode([
+            // ===== Base64 fields =====
+            $items = base64_encode(json_encode([
                 [
-                    'name' => 'Registration Fee',
+                    'name'     => 'Registration Fee',
                     'quantity' => 1,
-                    'price' => $amount
+                    'price'    => $amount
                 ]
-            ], JSON_UNESCAPED_SLASHES);
+            ], JSON_UNESCAPED_SLASHES));
 
-            $reqTime = now()->format('YmdHis');
+            $callbackUrl     = base64_encode(config('payway.callback'));
+            $returnDeeplink  = null;
+            $customFields    = null;
+            $returnParams    = null;
+            $payout           = null;
+            $lifetime         = 6;
+            $qrImageTemplate  = 'template3_color';
+            $purchaseType     = 'purchase';
+            $paymentOption    = 'abapay_khqr';
 
-            $callbackUrl = config('payway.callback');
-            $returnUrl   = config('payway.return');
-
+            // =====================================================
+            // 🔐 HASH STRING (EXACT ORDER FROM ABA DOC)
+            // =====================================================
             $hashString =
                 $reqTime .
-                config('payway.merchant_id') .
+                $merchantId .
                 $tranId .
                 $amount .
                 $items .
-                ($registration->first_name ?? '') .
-                ($registration->last_name ?? '') .
-                ($registration->personal_email ?? '') .
+                $firstName .
+                $lastName .
+                $email .
                 $phone .
-                'purchase' .
-                'abapay' .
+                $purchaseType .
+                $paymentOption .
                 $callbackUrl .
-                $returnUrl .
-                'USD';
+                $returnDeeplink .
+                $currency .
+                $customFields .
+                $returnParams .
+                $payout .
+                $lifetime .
+                $qrImageTemplate;
 
             $hash = base64_encode(
                 hash_hmac(
-                    'sha256',
+                    'sha512',
                     $hashString,
-                    config('payway.api_key'),
+                    config('payway.api_key'), // ✅ HMAC API KEY
                     true
                 )
             );
 
+            // ===== Payload =====
             $payload = [
-                'req_time'       => $reqTime,
-                'merchant_id'    => config('payway.merchant_id'),
-                'tran_id'        => $tranId,
-                'amount'         => $amount,
-                'items'          => $items,
-                'first_name'     => $registration->first_name ?? '',
-                'last_name'      => $registration->last_name ?? '',
-                'email'          => $registration->personal_email ?? '',
-                'phone'          => $phone,
-                'purchase_type'  => 'purchase',
-                'payment_option' => 'abapay',
-                'callback_url'   => $callbackUrl,
-                'return_url'     => $returnUrl,
-                'currency'       => 'USD',
-                'hash'           => $hash,
+                'req_time'          => $reqTime,
+                'merchant_id'       => $merchantId,
+                'tran_id'           => $tranId,
+                'first_name'        => $firstName,
+                'last_name'         => $lastName,
+                'email'             => $email,
+                'phone'             => $phone,
+                'amount'            => (float) $amount,
+                'purchase_type'     => $purchaseType,
+                'payment_option'    => $paymentOption,
+                'items'             => $items,
+                'currency'          => $currency,
+                'callback_url'      => $callbackUrl,
+                'return_deeplink'   => $returnDeeplink,
+                'custom_fields'     => $customFields,
+                'return_params'     => $returnParams,
+                'payout'            => $payout,
+                'lifetime'          => $lifetime,
+                'qr_image_template' => $qrImageTemplate,
+                'hash'              => $hash,
             ];
 
-            $response = Http::asForm()->post(
-                'https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/purchase',
+            // ===== Call ABA QR API =====
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json'
+            ])->post(
+                'https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/generate-qr',
                 $payload
             );
 
-
-
             if (!$response->successful()) {
-                Log::error('PayWay Error', [
+                Log::error('ABA QR Error', [
                     'status' => $response->status(),
-                    'body' => $response->body()
+                    'body'   => $response->body(),
                 ]);
                 return response()->json($response->json(), 403);
             }
-
-            DB::table('payment_transactions')->insert([
-                'tran_id' => $tranId,
-                'status' => 'PENDING',
-                'amount' => $amount,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-            DB::table('registrations')
-                ->where('id', $registration->id)
-                ->update([
-                    'payment_tran_id' => $tranId,
-                    'payment_status' => 'PENDING',
-                    'payment_amount' => $amount,
-                ]);
 
             DB::commit();
 
             return response()->json([
                 'tran_id' => $tranId,
-                'status' => 'PENDING',
-                'data' => $response->json()
+                'qr'      => $response->json()
             ]);
+
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error($e->getMessage());
             return response()->json(['error' => 'failed'], 500);
         }
-    }
-
-    public function paymentCallback(Request $request)
-    {
-        DB::table('payment_transactions')
-            ->where('tran_id', $request->tran_id)
-            ->update([
-                'status' => $request->payment_status_code == 0 ? 'PAID' : 'FAILED',
-                'updated_at' => now()
-            ]);
-
-        DB::table('registrations')
-            ->where('payment_tran_id', $request->tran_id)
-            ->update([
-                'payment_status' => $request->payment_status_code == 0 ? 'PAID' : 'FAILED',
-                'payment_date' => now()
-            ]);
-
-        return response()->json(['ack' => 'ok']);
-    }
-
-    public function checkPaymentStatus($tranId)
-    {
-        $tx = DB::table('payment_transactions')->where('tran_id', $tranId)->first();
-
-        return response()->json([
-            'tran_id' => $tranId,
-            'status' => [
-                'code' => $tx?->status === 'PAID' ? '0' : '1',
-                'message' => $tx?->status ?? 'PENDING',
-                'lang' => 'en'
-            ]
-        ]);
-    }
-
-    public function getRegistrationPayment($registrationId)
-    {
-        $data = DB::table('registrations')
-            ->leftJoin('payment_transactions', 'registrations.payment_tran_id', '=', 'payment_transactions.tran_id')
-            ->where('registrations.id', $registrationId)
-            ->first();
-
-        return response()->json(['data' => $data]);
     }
 }
