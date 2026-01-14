@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Models\User;
 
 class PaymentController extends Controller
 {
@@ -191,31 +192,43 @@ class PaymentController extends Controller
         }
     }
     public function paymentCallback(Request $request)
-{
-    Log::info('ABA CALLBACK RECEIVED', $request->all());
+    {
+        Log::info('ABA CALLBACK RECEIVED', $request->all());
 
-    if (!$request->tran_id) {
-        return response()->json(['error' => 'Missing tran_id'], 400);
+        if (!$request->tran_id) {
+            return response()->json(['error' => 'Missing tran_id'], 400);
+        }
+
+        $status = $request->payment_status_code == 0 ? 'PAID' : 'FAILED';
+
+        DB::table('payment_transactions')
+            ->where('tran_id', $request->tran_id)
+            ->update([
+                'status' => $status,
+                'updated_at' => now()
+            ]);
+        $registration = DB::table('registrations')
+            ->where('payment_tran_id', $request->tran_id)
+            ->first();
+
+        if (!$registration) {
+            DB::rollBack();
+            return response()->json(['error' => 'Registration not found'], 404);
+        }
+        DB::table('registrations')
+            ->where('payment_tran_id', $request->tran_id)
+            ->update([
+                'payment_status' => $status,
+                'payment_date' => now()
+            ]);
+        if ($status === 'PAID') {
+            User::where('email', $registration->personal_email)
+                ->where('role', 'register') // safety check
+                ->update([
+                    'role' => 'student',
+                ]);
+        }
+        // IMPORTANT: ABA expects HTTP 200
+        return response()->json(['ack' => 'ok']);
     }
-
-    $status = $request->payment_status_code == 0 ? 'PAID' : 'FAILED';
-
-    DB::table('payment_transactions')
-        ->where('tran_id', $request->tran_id)
-        ->update([
-            'status' => $status,
-            'updated_at' => now()
-        ]);
-
-    DB::table('registrations')
-        ->where('payment_tran_id', $request->tran_id)
-        ->update([
-            'payment_status' => $status,
-            'payment_date' => now()
-        ]);
-
-    // IMPORTANT: ABA expects HTTP 200
-    return response()->json(['ack' => 'ok']);
-}
-
 }
