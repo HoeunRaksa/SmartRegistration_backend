@@ -53,10 +53,10 @@ class PaymentController extends Controller
             ], JSON_UNESCAPED_SLASHES));
 
             $callbackUrl     = base64_encode(config('payway.callback'));
-            $returnDeeplink  = null;
-            $customFields    = null;
-            $returnParams    = null;
-            $payout           = null;
+            $returnDeeplink  = '';
+            $customFields    = '';
+            $returnParams    = '';
+            $payout           = '';
             $lifetime         = 6;
             $qrImageTemplate  = 'template3_color';
             $purchaseType     = 'purchase';
@@ -78,13 +78,14 @@ class PaymentController extends Controller
                 $purchaseType .
                 $paymentOption .
                 $callbackUrl .
-                $returnDeeplink .
+                $returnDeeplink .   // "" ← NOT null
                 $currency .
-                $customFields .
-                $returnParams .
-                $payout .
+                $customFields .     // ""
+                $returnParams .     // ""
+                $payout .           // ""
                 $lifetime .
                 $qrImageTemplate;
+
 
             $hash = base64_encode(
                 hash_hmac(
@@ -110,14 +111,15 @@ class PaymentController extends Controller
                 'items'             => $items,
                 'currency'          => $currency,
                 'callback_url'      => $callbackUrl,
-                'return_deeplink'   => $returnDeeplink,
-                'custom_fields'     => $customFields,
-                'return_params'     => $returnParams,
-                'payout'            => $payout,
+                'return_deeplink'   => '',   // ← empty string
+                'custom_fields'     => '',
+                'return_params'     => '',
+                'payout'            => '',
                 'lifetime'          => $lifetime,
                 'qr_image_template' => $qrImageTemplate,
                 'hash'              => $hash,
             ];
+
 
             // ===== Call ABA QR API =====
             $response = Http::withHeaders([
@@ -141,7 +143,6 @@ class PaymentController extends Controller
                 'tran_id' => $tranId,
                 'qr'      => $response->json()
             ]);
-
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error($e->getMessage());
