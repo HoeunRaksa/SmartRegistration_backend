@@ -118,12 +118,11 @@ class PaymentController extends Controller
 
             Log::info('PayWay Payload', $payload);
 
-            $response = Http::withHeaders([
-                'Content-Type' => 'application/json'
-            ])->post(
+            $response = Http::asForm()->post(
                 'https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/purchase',
                 $payload
             );
+
 
             if (!$response->successful()) {
                 Log::error('PayWay Error', [
