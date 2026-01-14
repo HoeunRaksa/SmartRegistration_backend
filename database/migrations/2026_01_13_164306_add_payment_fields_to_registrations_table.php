@@ -14,7 +14,7 @@ return new class extends Migration
             $table->decimal('payment_amount', 10, 2)->nullable()->after('payment_status');
             $table->timestamp('payment_date')->nullable()->after('payment_amount');
             
-            // Add foreign key to payment_transactions
+            // Add foreign key to payment_transaction s
             $table->foreign('payment_tran_id')
                   ->references('tran_id')
                   ->on('payment_transactions')
