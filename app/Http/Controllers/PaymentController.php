@@ -193,68 +193,51 @@ class PaymentController extends Controller
     }
     public function paymentCallback(Request $request)
     {
-        Log::info('ABA CALLBACK RECEIVED', [
-            'headers' => $request->headers->all(),
-            'body' => $request->getContent(),
-            'parsed' => $request->all(),
-        ]);
+        Log::info('ABA CALLBACK RECEIVED', $request->all());
 
-        if (!$request->filled('tran_id')) {
+        // ✅ Basic validation
+        if (!$request->has('tran_id')) {
             return response()->json(['error' => 'Missing tran_id'], 400);
         }
 
-        DB::beginTransaction();
+        $tranId = $request->tran_id;
+        $status = ($request->payment_status_code == 0) ? 'PAID' : 'FAILED';
 
-        try {
-            $status = ((int) $request->payment_status_code === 0) ? 'PAID' : 'FAILED';
-
-            // 1️⃣ Update payment transaction
-            DB::table('payment_transactions')
-                ->where('tran_id', $request->tran_id)
-                ->update([
-                    'status' => $status,
-                    'updated_at' => now(),
-                ]);
-
-            // 2️⃣ Find registration
-            $registration = DB::table('registrations')
-                ->where('payment_tran_id', $request->tran_id)
-                ->first();
-
-            if (!$registration) {
-                DB::rollBack();
-                return response()->json(['error' => 'Registration not found'], 404);
-            }
-
-            // 3️⃣ Update registration
-            DB::table('registrations')
-                ->where('payment_tran_id', $request->tran_id)
-                ->update([
-                    'payment_status' => $status,
-                    'payment_date' => now(),
-                ]);
-
-            // 4️⃣ 🔥 Change user role AFTER successful payment
-            if ($status === 'PAID') {
-                User::where('email', $registration->personal_email)
-                    ->where('role', 'register')
-                    ->update([
-                        'role' => 'student',
-                    ]);
-            }
-
-            DB::commit();
-
-            // ABA requires HTTP 200
-            return response()->json(['ack' => 'ok']);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-
-            Log::error('PAYMENT CALLBACK ERROR', [
-                'error' => $e->getMessage(),
+        // ✅ Update transaction (safe even if already updated)
+        DB::table('payment_transactions')
+            ->where('tran_id', $tranId)
+            ->update([
+                'status' => $status,
+                'updated_at' => now(),
             ]);
 
-            return response()->json(['error' => 'Internal server error'], 500);
+        // ✅ Find registration
+        $registration = DB::table('registrations')
+            ->where('payment_tran_id', $tranId)
+            ->first();
+
+        if (!$registration) {
+            // IMPORTANT: ABA expects 200 even if internal issue
+            Log::warning('Registration not found for tran_id', ['tran_id' => $tranId]);
+            return response()->json(['ack' => 'ok']);
         }
+
+        // ✅ Update registration
+        DB::table('registrations')
+            ->where('payment_tran_id', $tranId)
+            ->update([
+                'payment_status' => $status,
+                'payment_date' => now(),
+            ]);
+
+        // ✅ Upgrade user role
+        if ($status === 'PAID') {
+            \App\Models\User::where('email', $registration->personal_email)
+                ->where('role', 'register')
+                ->update(['role' => 'student']);
+        }
+
+        // ✅ ABA MUST RECEIVE HTTP 200
+        return response()->json(['ack' => 'ok']);
     }
 }
