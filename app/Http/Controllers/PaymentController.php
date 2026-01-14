@@ -10,6 +10,9 @@ use App\Models\User;
 
 class PaymentController extends Controller
 {
+    /**
+     * Generate ABA PayWay QR Code
+     */
     public function generateQr(Request $request)
     {
         Log::info('🔥 generateQr hit');
@@ -21,7 +24,9 @@ class PaymentController extends Controller
         DB::beginTransaction();
 
         try {
-            // 1️⃣ Load registration + fee
+            /* =====================================================
+               1️⃣ Load registration + fee
+            ===================================================== */
             $registration = DB::table('registrations')
                 ->join('majors', 'registrations.major_id', '=', 'majors.id')
                 ->where('registrations.id', $request->registration_id)
@@ -36,8 +41,11 @@ class PaymentController extends Controller
                 return response()->json(['error' => 'Already paid'], 400);
             }
 
-            // 2️⃣ Prepare core values
+            /* =====================================================
+               2️⃣ Prepare core values
+            ===================================================== */
             $tranId = 'REG-' . $registration->id . '-' . time();
+
             $amount = number_format(
                 $registration->payment_amount ?? $registration->registration_fee,
                 2,
@@ -45,45 +53,55 @@ class PaymentController extends Controller
                 ''
             );
 
-            // Phone normalize (PayWay tolerant, keep simple)
+            // Normalize Cambodia phone → 855XXXXXXXX
             $phone = preg_replace('/\D/', '', $registration->phone_number ?? '');
             if (str_starts_with($phone, '0')) {
                 $phone = '855' . substr($phone, 1);
             }
 
-            // 3️⃣ RAW values (CRITICAL)
+            if (strlen($phone) < 11) {
+                return response()->json(['error' => 'Invalid phone number'], 422);
+            }
+
+            /* =====================================================
+               3️⃣ RAW items (NOT encoded yet)
+            ===================================================== */
             $itemsRaw = json_encode([
                 [
                     'name'     => 'Registration Fee',
                     'quantity' => 1,
-                    'price'    => $amount
+                    'price'    => $amount,
                 ]
-            ]);
+            ], JSON_UNESCAPED_SLASHES);
 
             $callbackUrl = config('payway.callback');
             $returnUrl   = config('payway.return');
 
-            // 4️⃣ Base payload (RAW)
+            /* =====================================================
+               4️⃣ Base payload (RAW values only)
+            ===================================================== */
             $paymentData = [
                 'req_time'          => now()->format('YmdHis'),
                 'merchant_id'       => config('payway.merchant_id'),
                 'tran_id'           => $tranId,
                 'amount'            => $amount,
-                'items'             => null, // encoded later
+                'items'             => null, // encoded AFTER hash
                 'first_name'        => $registration->first_name ?? '',
                 'last_name'         => $registration->last_name ?? '',
                 'email'             => $registration->personal_email ?? '',
                 'phone'             => $phone,
                 'purchase_type'     => 'purchase',
                 'payment_option'    => 'abapay_khqr',
-                'callback_url'      => null, // encoded later
-                'return_url'        => null, // encoded later
+                'callback_url'      => null, // encoded AFTER hash
+                'return_url'        => null, // encoded AFTER hash
                 'currency'          => 'USD',
                 'lifetime'          => '300',
                 'qr_image_template' => 'template3_color',
             ];
 
-            // 5️⃣ HASH STRING — EXACT ORDER (RAW ONLY)
+            /* =====================================================
+               5️⃣ HASH STRING — EXACT ABA ORDER (RAW ONLY)
+            ===================================================== */
             $hashString =
                 $paymentData['req_time'] .
                 $paymentData['merchant_id'] .
@@ -102,7 +120,9 @@ class PaymentController extends Controller
                 $paymentData['lifetime'] .
                 $paymentData['qr_image_template'];
 
-            // 6️⃣ Generate HASH
+            /* =====================================================
+               6️⃣ Generate HASH
+            ===================================================== */
             $paymentData['hash'] = base64_encode(
                 hash_hmac(
                     'sha512',
@@ -112,16 +132,23 @@ class PaymentController extends Controller
                 )
             );
 
-            // 7️⃣ Encode AFTER hashing
+            /* =====================================================
+               7️⃣ Encode AFTER hashing (CRITICAL)
+            ===================================================== */
             $paymentData['items']        = base64_encode($itemsRaw);
             $paymentData['callback_url'] = base64_encode($callbackUrl);
             $paymentData['return_url']   = base64_encode($returnUrl);
 
-            Log::info('PayWay Request', $paymentData);
+            Log::info('PayWay Request', [
+                'tran_id' => $tranId,
+                'amount'  => $amount
+            ]);
 
-            // 8️⃣ Call PayWay
+            /* =====================================================
+               8️⃣ Call PayWay API
+            ===================================================== */
             $response = Http::withHeaders([
-                'Content-Type' => 'application/json'
+                'Content-Type' => 'application/json',
             ])->post(
                 rtrim(config('payway.base_url'), '/') . '/generate-qr',
                 $paymentData
@@ -130,24 +157,26 @@ class PaymentController extends Controller
             if (!$response->successful()) {
                 Log::error('PayWay Error', [
                     'status' => $response->status(),
-                    'body'   => $response->body()
+                    'body'   => $response->body(),
                 ]);
 
                 return response()->json([
                     'error'   => 'Payment gateway error',
-                    'details'=> $response->json()
+                    'details'=> $response->json(),
                 ], $response->status());
             }
 
             $result = $response->json();
 
-            // 9️⃣ Save DB
+            /* =====================================================
+               9️⃣ Save DB
+            ===================================================== */
             DB::table('payment_transactions')->insert([
-                'tran_id'    => $tranId,
-                'status'     => 'PENDING',
-                'amount'     => $amount,
-                'created_at'=> now(),
-                'updated_at'=> now(),
+                'tran_id'     => $tranId,
+                'status'      => 'PENDING',
+                'amount'      => $amount,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
 
             DB::table('registrations')
@@ -161,33 +190,33 @@ class PaymentController extends Controller
 
             DB::commit();
 
-            // 🔟 Return
+            /* =====================================================
+               🔟 Return to frontend
+            ===================================================== */
             return response()->json([
                 'qr_image_url' => $result['qr_image_url'] ?? null,
                 'qr_string'    => $result['qr_string'] ?? null,
                 'tran_id'      => $tranId,
                 'amount'       => $amount,
-                'status'       => 'PENDING'
+                'status'       => 'PENDING',
             ]);
 
         } catch (\Throwable $e) {
             DB::rollBack();
 
             Log::error('Generate QR Failed', [
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
 
             return response()->json([
-                'error' => 'Failed to generate QR'
+                'error' => 'Failed to generate QR',
             ], 500);
         }
     }
 
-    /* =======================================================
-       CALLBACK, CHECK STATUS, GET REGISTRATION
-       (unchanged – already correct)
-       ======================================================= */
-
+    /* =====================================================
+       CALLBACK
+    ===================================================== */
     public function paymentCallback(Request $request)
     {
         Log::info('PayWay Callback', $request->all());
@@ -204,23 +233,17 @@ class PaymentController extends Controller
             DB::table('payment_transactions')
                 ->where('tran_id', $tranId)
                 ->update([
-                    'status'     => $newStatus,
-                    'updated_at'=> now(),
+                    'status'      => $newStatus,
+                    'updated_at' => now(),
                 ]);
 
             if ($newStatus === 'PAID') {
-                $registration = DB::table('registrations')
+                DB::table('registrations')
                     ->where('payment_tran_id', $tranId)
-                    ->first();
-
-                if ($registration) {
-                    DB::table('registrations')
-                        ->where('id', $registration->id)
-                        ->update([
-                            'payment_status' => 'PAID',
-                            'payment_date'   => now(),
-                        ]);
-                }
+                    ->update([
+                        'payment_status' => 'PAID',
+                        'payment_date'   => now(),
+                    ]);
             }
 
             DB::commit();
@@ -232,6 +255,9 @@ class PaymentController extends Controller
         }
     }
 
+    /* =====================================================
+       CHECK STATUS
+    ===================================================== */
     public function checkPaymentStatus($tranId)
     {
         $tx = DB::table('payment_transactions')->where('tran_id', $tranId)->first();
@@ -246,10 +272,18 @@ class PaymentController extends Controller
         ]);
     }
 
+    /* =====================================================
+       GET REGISTRATION PAYMENT
+    ===================================================== */
     public function getRegistrationPayment($registrationId)
     {
         $data = DB::table('registrations')
-            ->leftJoin('payment_transactions', 'registrations.payment_tran_id', '=', 'payment_transactions.tran_id')
+            ->leftJoin(
+                'payment_transactions',
+                'registrations.payment_tran_id',
+                '=',
+                'payment_transactions.tran_id'
+            )
             ->where('registrations.id', $registrationId)
             ->first();
 

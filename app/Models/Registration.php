@@ -10,55 +10,39 @@ class Registration extends Model
     use HasFactory;
 
     protected $table = 'registrations';
-    protected $primaryKey = 'id';
 
     protected $fillable = [
         // Personal Info
-        'first_name',
-        'last_name',
-        'full_name_kh',
-        'full_name_en',
-        'gender',
-        'date_of_birth',
-        'address',
-        'current_address',
-        'phone_number',
-        'personal_email',
+        'first_name','last_name','full_name_kh','full_name_en',
+        'gender','date_of_birth','address','current_address',
+        'phone_number','personal_email',
 
         // Education Info
-        'high_school_name',
-        'graduation_year',
-        'grade12_result',
+        'high_school_name','graduation_year','grade12_result',
 
-        // Department & Study Info
-        'department_id',
-        'major_id',
-        'faculty',
-        'shift',
-        'batch',
-        'academic_year',
-        'profile_picture_path',
+        // Study Info
+        'department_id','major_id','faculty','shift','batch',
+        'academic_year','profile_picture_path',
 
-        // Parent / Guardian Info
-        'father_name',
-        'fathers_date_of_birth',
-        'fathers_nationality',
-        'fathers_job',
-        'fathers_phone_number',
+        // Guardian Info
+        'father_name','fathers_date_of_birth','fathers_nationality',
+        'fathers_job','fathers_phone_number',
+        'mother_name','mother_date_of_birth','mother_nationality',
+        'mothers_job','mother_phone_number',
+        'guardian_name','guardian_phone_number',
+        'emergency_contact_name','emergency_contact_phone_number',
 
-        'mother_name',
-        'mother_date_of_birth',
-        'mother_nationality',
-        'mothers_job',
-        'mother_phone_number',
-
-        'guardian_name',
-        'guardian_phone_number',
-        'emergency_contact_name',
-        'emergency_contact_phone_number',
+        // ✅ Payment
+        'payment_status',
+        'payment_tran_id',
+        'payment_amount',
+        'payment_date',
     ];
 
-    // ------------------- Relationships -------------------
+    protected $casts = [
+        'payment_date' => 'datetime',
+        'payment_amount' => 'decimal:2',
+    ];
 
     public function department()
     {
