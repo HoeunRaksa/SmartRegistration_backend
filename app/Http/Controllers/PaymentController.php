@@ -148,11 +148,74 @@ class PaymentController extends Controller
                 'tran_id' => $tranId,
                 'qr'      => $response->json()
             ]);
-
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error($e->getMessage());
             return response()->json(['error' => 'failed'], 500);
         }
     }
+    public function checkPaymentStatus($tranId)
+    {
+        try {
+            $tx = DB::table('payment_transactions')
+                ->where('tran_id', $tranId)
+                ->first();
+            if (!$tx) {
+                return response()->json([
+                    'tran_id' => $tranId,
+                    'status' => [
+                        'code' => '1',
+                        'message' => 'PENDING',
+                        'lang' => 'en'
+                    ]
+                ]);
+            }
+
+            return response()->json([
+                'tran_id' => $tranId,
+                'status' => [
+                    'code' => $tx->status === 'PAID' ? '0' : '1',
+                    'message' => $tx->status,
+                    'lang' => 'en'
+                ]
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('checkPaymentStatus error', [
+                'tran_id' => $tranId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'error' => 'Internal error'
+            ], 500);
+        }
+    }
+    public function paymentCallback(Request $request)
+{
+    Log::info('ABA CALLBACK RECEIVED', $request->all());
+
+    if (!$request->tran_id) {
+        return response()->json(['error' => 'Missing tran_id'], 400);
+    }
+
+    $status = $request->payment_status_code == 0 ? 'PAID' : 'FAILED';
+
+    DB::table('payment_transactions')
+        ->where('tran_id', $request->tran_id)
+        ->update([
+            'status' => $status,
+            'updated_at' => now()
+        ]);
+
+    DB::table('registrations')
+        ->where('payment_tran_id', $request->tran_id)
+        ->update([
+            'payment_status' => $status,
+            'payment_date' => now()
+        ]);
+
+    // IMPORTANT: ABA expects HTTP 200
+    return response()->json(['ack' => 'ok']);
+}
+
 }
