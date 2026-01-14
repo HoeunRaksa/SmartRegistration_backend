@@ -45,7 +45,7 @@ class PaymentController extends Controller
                 $phone = '855' . substr($phone, 1);
             }
 
-            $itemsRaw = json_encode([
+            $items = json_encode([
                 [
                     'name' => 'Registration Fee',
                     'quantity' => 1,
@@ -53,45 +53,30 @@ class PaymentController extends Controller
                 ]
             ], JSON_UNESCAPED_SLASHES);
 
-            // BASE64 FIRST (IMPORTANT)
-            $itemsEncoded    = base64_encode($itemsRaw);
-            $callbackRaw = config('payway.callback');
-            $returnRaw   = config('payway.return');
-            $callbackEncoded = base64_encode($callbackRaw);
-            $returnEncoded   = base64_encode($returnRaw);
-
-
             $reqTime = now()->format('YmdHis');
 
-            // ✅ EXACT ABA HASH ORDER
-            $hashString =
-                $reqTime = now()->format('YmdHis');
-
-            $callbackRaw = config('payway.callback');
-            $returnRaw   = config('payway.return');
-
-            $callbackEncoded = base64_encode($callbackRaw);
-            $returnEncoded   = base64_encode($returnRaw);
+            $callbackUrl = config('payway.callback');
+            $returnUrl   = config('payway.return');
 
             $hashString =
                 $reqTime .
                 config('payway.merchant_id') .
                 $tranId .
                 $amount .
-                $itemsEncoded .
+                $items .
                 ($registration->first_name ?? '') .
                 ($registration->last_name ?? '') .
                 ($registration->personal_email ?? '') .
                 $phone .
                 'purchase' .
-                'abapay' .          // ✅ FIXED
-                $callbackEncoded .
-                $returnEncoded .
+                'abapay' .
+                $callbackUrl .
+                $returnUrl .
                 'USD';
 
             $hash = base64_encode(
                 hash_hmac(
-                    'sha256',        // ✅ FIXED
+                    'sha256',
                     $hashString,
                     config('payway.api_key'),
                     true
@@ -103,25 +88,24 @@ class PaymentController extends Controller
                 'merchant_id'    => config('payway.merchant_id'),
                 'tran_id'        => $tranId,
                 'amount'         => $amount,
-                'items'          => $itemsEncoded,
+                'items'          => $items,
                 'first_name'     => $registration->first_name ?? '',
                 'last_name'      => $registration->last_name ?? '',
                 'email'          => $registration->personal_email ?? '',
                 'phone'          => $phone,
                 'purchase_type'  => 'purchase',
-                'payment_option' => 'abapay',   // ✅ FIXED
-                'callback_url'   => $callbackRaw, // ✅ FIXED
-                'return_url'     => $returnRaw,   // ✅ FIXED
+                'payment_option' => 'abapay',
+                'callback_url'   => $callbackUrl,
+                'return_url'     => $returnUrl,
                 'currency'       => 'USD',
                 'hash'           => $hash,
             ];
-
-            Log::info('PayWay Payload', $payload);
 
             $response = Http::asForm()->post(
                 'https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/purchase',
                 $payload
             );
+
 
 
             if (!$response->successful()) {
