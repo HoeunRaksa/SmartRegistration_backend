@@ -80,14 +80,8 @@ class PaymentController extends Controller
 
                 'purchase_type'  => 'purchase',
                 'payment_option' => 'abapay_khqr',
-
-                // ✅ REQUIRED
                 'callback_url' => base64_encode(config('payway.callback')),
                 'return_url'   => base64_encode(config('payway.return')),
-
-                // ❌ optional (can keep or remove)
-                // 'return_deeplink' => base64_encode(config('payway.return')),
-
                 'currency' => 'USD',
                 'lifetime' => '300',
                 'qr_image_template' => 'template3_color'
@@ -110,7 +104,6 @@ class PaymentController extends Controller
                 'purchase_type',
                 'payment_option',
                 'callback_url',
-                'return_deeplink',
                 'return_url',
                 'currency',
                 'lifetime',
