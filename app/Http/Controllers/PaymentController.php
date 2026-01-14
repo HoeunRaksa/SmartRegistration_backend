@@ -94,6 +94,7 @@ class PaymentController extends Controller
                 'return_url',
                 'currency'
             ];
+
             $hashString = '';
             foreach ($hashFields as $field) {
                 $hashString .= $paymentData[$field] ?? '';
@@ -107,8 +108,6 @@ class PaymentController extends Controller
                     true
                 )
             );
-
-
             Log::info('PayWay Request:', [
                 'tran_id' => $tranId,
                 'amount' => $amount,
