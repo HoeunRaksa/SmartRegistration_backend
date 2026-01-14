@@ -6,12 +6,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Models\User;
 
 class PaymentController extends Controller
 {
-    /**
-     * Generate ABA PayWay KHQR
-     */
     public function generateQr(Request $request)
     {
         Log::info('🔥 generateQr hit');
@@ -23,28 +21,17 @@ class PaymentController extends Controller
         DB::beginTransaction();
 
         try {
-            /* =====================================================
-               1️⃣ Load registration + fee
-            ===================================================== */
             $registration = DB::table('registrations')
                 ->join('majors', 'registrations.major_id', '=', 'majors.id')
                 ->where('registrations.id', $request->registration_id)
                 ->select('registrations.*', 'majors.registration_fee')
                 ->first();
 
-            if (!$registration) {
-                return response()->json(['error' => 'Registration not found'], 404);
+            if (!$registration || $registration->payment_status === 'PAID') {
+                return response()->json(['error' => 'Invalid registration'], 400);
             }
 
-            if ($registration->payment_status === 'PAID') {
-                return response()->json(['error' => 'Already paid'], 400);
-            }
-
-            /* =====================================================
-               2️⃣ Core values
-            ===================================================== */
             $tranId = 'REG-' . $registration->id . '-' . time();
-
             $amount = number_format(
                 $registration->payment_amount ?? $registration->registration_fee,
                 2,
@@ -52,40 +39,27 @@ class PaymentController extends Controller
                 ''
             );
 
-            // Normalize phone → 855XXXXXXXX
             $phone = preg_replace('/\D/', '', $registration->phone_number ?? '');
             if (str_starts_with($phone, '0')) {
                 $phone = '855' . substr($phone, 1);
             }
 
-            if (strlen($phone) < 11) {
-                return response()->json(['error' => 'Invalid phone number'], 422);
-            }
-
-            /* =====================================================
-               3️⃣ RAW items
-            ===================================================== */
             $itemsRaw = json_encode([
                 [
-                    'name'     => 'Registration Fee',
+                    'name' => 'Registration Fee',
                     'quantity' => 1,
-                    'price'    => $amount,
+                    'price' => $amount
                 ]
             ], JSON_UNESCAPED_SLASHES);
 
-            /* =====================================================
-               4️⃣ BASE64 encode FIRST (CRITICAL)
-            ===================================================== */
+            // BASE64 FIRST (IMPORTANT)
             $itemsEncoded    = base64_encode($itemsRaw);
             $callbackEncoded = base64_encode(config('payway.callback'));
             $returnEncoded   = base64_encode(config('payway.return'));
 
             $reqTime = now()->format('YmdHis');
 
-            /* =====================================================
-               5️⃣ HASH STRING (ABA EXACT ORDER)
-               ⚠️ MUST USE ENCODED VALUES
-            ===================================================== */
+            // ✅ EXACT ABA HASH ORDER
             $hashString =
                 $reqTime .
                 config('payway.merchant_id') .
@@ -102,9 +76,6 @@ class PaymentController extends Controller
                 $returnEncoded .
                 'USD';
 
-            /* =====================================================
-               6️⃣ Generate HASH (HMAC SHA512)
-            ===================================================== */
             $hash = base64_encode(
                 hash_hmac(
                     'sha512',
@@ -114,9 +85,6 @@ class PaymentController extends Controller
                 )
             );
 
-            /* =====================================================
-               7️⃣ Final payload
-            ===================================================== */
             $payload = [
                 'req_time'       => $reqTime,
                 'merchant_id'    => config('payway.merchant_id'),
@@ -135,16 +103,10 @@ class PaymentController extends Controller
                 'hash'           => $hash,
             ];
 
-            Log::info('PayWay Payload Ready', [
-                'tran_id' => $tranId,
-                'amount'  => $amount,
-            ]);
+            Log::info('PayWay Payload', $payload);
 
-            /* =====================================================
-               8️⃣ Call ABA PayWay (CORRECT ENDPOINT)
-            ===================================================== */
             $response = Http::withHeaders([
-                'Content-Type' => 'application/json',
+                'Content-Type' => 'application/json'
             ])->post(
                 'https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/purchase',
                 $payload
@@ -153,60 +115,82 @@ class PaymentController extends Controller
             if (!$response->successful()) {
                 Log::error('PayWay Error', [
                     'status' => $response->status(),
-                    'body'   => $response->body(),
+                    'body' => $response->body()
                 ]);
-
-                return response()->json([
-                    'error'  => 'PayWay error',
-                    'detail' => $response->json(),
-                ], $response->status());
+                return response()->json($response->json(), 403);
             }
 
-            $result = $response->json();
-
-            /* =====================================================
-               9️⃣ Save DB
-            ===================================================== */
             DB::table('payment_transactions')->insert([
-                'tran_id'     => $tranId,
-                'status'      => 'PENDING',
-                'amount'      => $amount,
-                'created_at'  => now(),
-                'updated_at'  => now(),
+                'tran_id' => $tranId,
+                'status' => 'PENDING',
+                'amount' => $amount,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
 
             DB::table('registrations')
                 ->where('id', $registration->id)
                 ->update([
                     'payment_tran_id' => $tranId,
-                    'payment_status'  => 'PENDING',
-                    'payment_amount'  => $amount,
-                    'updated_at'      => now(),
+                    'payment_status' => 'PENDING',
+                    'payment_amount' => $amount,
                 ]);
 
             DB::commit();
 
-            /* =====================================================
-               🔟 Return to frontend
-            ===================================================== */
             return response()->json([
-                'qr_image_url' => $result['qr_image_url'] ?? null,
-                'qr_string'    => $result['qr_string'] ?? null,
-                'tran_id'      => $tranId,
-                'amount'       => $amount,
-                'status'       => 'PENDING',
+                'tran_id' => $tranId,
+                'status' => 'PENDING',
+                'data' => $response->json()
             ]);
 
         } catch (\Throwable $e) {
             DB::rollBack();
+            Log::error($e->getMessage());
+            return response()->json(['error' => 'failed'], 500);
+        }
+    }
 
-            Log::error('Generate QR Failed', [
-                'error' => $e->getMessage(),
+    public function paymentCallback(Request $request)
+    {
+        DB::table('payment_transactions')
+            ->where('tran_id', $request->tran_id)
+            ->update([
+                'status' => $request->payment_status_code == 0 ? 'PAID' : 'FAILED',
+                'updated_at' => now()
             ]);
 
-            return response()->json([
-                'error' => 'Generate QR failed',
-            ], 500);
-        }
+        DB::table('registrations')
+            ->where('payment_tran_id', $request->tran_id)
+            ->update([
+                'payment_status' => $request->payment_status_code == 0 ? 'PAID' : 'FAILED',
+                'payment_date' => now()
+            ]);
+
+        return response()->json(['ack' => 'ok']);
+    }
+
+    public function checkPaymentStatus($tranId)
+    {
+        $tx = DB::table('payment_transactions')->where('tran_id', $tranId)->first();
+
+        return response()->json([
+            'tran_id' => $tranId,
+            'status' => [
+                'code' => $tx?->status === 'PAID' ? '0' : '1',
+                'message' => $tx?->status ?? 'PENDING',
+                'lang' => 'en'
+            ]
+        ]);
+    }
+
+    public function getRegistrationPayment($registrationId)
+    {
+        $data = DB::table('registrations')
+            ->leftJoin('payment_transactions', 'registrations.payment_tran_id', '=', 'payment_transactions.tran_id')
+            ->where('registrations.id', $registrationId)
+            ->first();
+
+        return response()->json(['data' => $data]);
     }
 }
