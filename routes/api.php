@@ -53,17 +53,24 @@ Route::get('/subjects/{id}', [SubjectController::class, 'show']);
 | PAYMENT (PUBLIC + AUTHENTICATED)
 |--------------------------------------------------------------------------
 */
-Route::prefix('payment')
-    ->withoutMiddleware([
-        EnsureFrontendRequestsAreStateful::class,
-        ThrottleRequests::class,
-    ])
-    ->group(function () {
-        Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
-        Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus']);
-        Route::post('/callback', [PaymentController::class, 'paymentCallback']);
-        Route::get('/registration/{registrationId}', [PaymentController::class, 'getRegistrationPayment']);
-    });
+Route::prefix('payment')->group(function () {
+
+    // 🔹 Generate KHQR
+    Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
+
+    // 🔹 Poll payment status
+    Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus']);
+
+    // 🔹 ABA webhook (NO CSRF, NO AUTH, NO THROTTLE)
+    Route::post('/callback', [PaymentController::class, 'paymentCallback'])
+        ->withoutMiddleware([
+            EnsureFrontendRequestsAreStateful::class,
+            ThrottleRequests::class,
+        ]);
+
+    // 🔹 Get registration + payment
+    Route::get('/registration/{registrationId}', [PaymentController::class, 'getRegistrationPayment']);
+});
 
 
 
