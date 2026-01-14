@@ -92,12 +92,8 @@ class PaymentController extends Controller
                 'payment_option',
                 'callback_url',
                 'return_url',
-                'currency',
-                'lifetime',
-                'qr_image_template'
-
+                'currency'
             ];
-
             $hashString = '';
             foreach ($hashFields as $field) {
                 $hashString .= $paymentData[$field] ?? '';
