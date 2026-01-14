@@ -6,25 +6,17 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::table('registrations', function (Blueprint $table) {
             $table->string('profile_picture_path', 255)
                   ->nullable()
-                  ->after('academic_year');
+                  ->change(); // 👈 MODIFY, not ADD
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
-        Schema::table('registrations', function (Blueprint $table) {
-            $table->dropColumn('profile_picture_path');
-        });
+   
     }
 };
