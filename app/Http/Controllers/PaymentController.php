@@ -14,6 +14,7 @@ class PaymentController extends Controller
     {
         Log::info('🔥 generateQr hit');
 
+
         $request->validate([
             'registration_id' => 'required|exists:registrations,id'
         ]);
@@ -54,12 +55,24 @@ class PaymentController extends Controller
 
             // BASE64 FIRST (IMPORTANT)
             $itemsEncoded    = base64_encode($itemsRaw);
-            $callbackEncoded = base64_encode(config('payway.callback'));
-            $returnEncoded   = base64_encode(config('payway.return'));
+            $callbackRaw = config('payway.callback');
+            $returnRaw   = config('payway.return');
+            $callbackEncoded = base64_encode($callbackRaw);
+            $returnEncoded   = base64_encode($returnRaw);
+
 
             $reqTime = now()->format('YmdHis');
 
             // ✅ EXACT ABA HASH ORDER
+            $hashString =
+                $reqTime = now()->format('YmdHis');
+
+            $callbackRaw = config('payway.callback');
+            $returnRaw   = config('payway.return');
+
+            $callbackEncoded = base64_encode($callbackRaw);
+            $returnEncoded   = base64_encode($returnRaw);
+
             $hashString =
                 $reqTime .
                 config('payway.merchant_id') .
@@ -71,14 +84,14 @@ class PaymentController extends Controller
                 ($registration->personal_email ?? '') .
                 $phone .
                 'purchase' .
-                'abapay_khqr' .
+                'abapay' .          // ✅ FIXED
                 $callbackEncoded .
                 $returnEncoded .
                 'USD';
 
             $hash = base64_encode(
                 hash_hmac(
-                    'sha512',
+                    'sha256',        // ✅ FIXED
                     $hashString,
                     config('payway.api_key'),
                     true
@@ -96,9 +109,9 @@ class PaymentController extends Controller
                 'email'          => $registration->personal_email ?? '',
                 'phone'          => $phone,
                 'purchase_type'  => 'purchase',
-                'payment_option' => 'abapay_khqr',
-                'callback_url'   => $callbackEncoded,
-                'return_url'     => $returnEncoded,
+                'payment_option' => 'abapay',   // ✅ FIXED
+                'callback_url'   => $callbackRaw, // ✅ FIXED
+                'return_url'     => $returnRaw,   // ✅ FIXED
                 'currency'       => 'USD',
                 'hash'           => $hash,
             ];
@@ -143,7 +156,6 @@ class PaymentController extends Controller
                 'status' => 'PENDING',
                 'data' => $response->json()
             ]);
-
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error($e->getMessage());
