@@ -36,6 +36,18 @@ class PaymentController extends Controller
             $reqTime    = now()->utc()->format('YmdHis');
             $merchantId = config('payway.merchant_id');
             $tranId     = 'REG-' . $registration->id . '-' . time();
+            DB::table('payment_transactions')->insert([
+                'tran_id' => $tranId,
+                'status' => 'PENDING',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            DB::table('registrations')
+                ->where('id', $registration->id)
+                ->update([
+                    'payment_tran_id' => $tranId,
+                    'payment_status' => 'PENDING',
+                ]);
             $amount     = number_format($registration->registration_fee, 2, '.', '');
             $currency   = 'USD';
 
@@ -135,6 +147,7 @@ class PaymentController extends Controller
             );
 
             if (!$response->successful()) {
+                DB::rollBack(); // 🔴 MUST ADD
                 Log::error('ABA QR Error', [
                     'status' => $response->status(),
                     'body'   => $response->body(),
@@ -142,6 +155,7 @@ class PaymentController extends Controller
                 ]);
                 return response()->json($response->json(), 403);
             }
+
 
             DB::commit();
 
@@ -175,7 +189,7 @@ class PaymentController extends Controller
             return response()->json([
                 'tran_id' => $tranId,
                 'status' => [
-                    'code' => $tx->status === 'PAID' ? '0' : '1',
+                    'code' => in_array($tx->status, ['PAID', 'SUCCESS', 'COMPLETED']) ? '0' : '1',
                     'message' => $tx->status,
                     'lang' => 'en'
                 ]
@@ -204,12 +218,14 @@ class PaymentController extends Controller
         $status = ($request->payment_status_code == 0) ? 'PAID' : 'FAILED';
 
         // ✅ Update transaction (safe even if already updated)
-        DB::table('payment_transactions')
-            ->where('tran_id', $tranId)
-            ->update([
+        DB::table('payment_transactions')->updateOrInsert(
+            ['tran_id' => $tranId],
+            [
                 'status' => $status,
                 'updated_at' => now(),
-            ]);
+            ]
+        );
+
 
         // ✅ Find registration
         $registration = DB::table('registrations')
