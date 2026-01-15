@@ -36,12 +36,15 @@ class PaymentController extends Controller
             $reqTime    = now()->utc()->format('YmdHis');
             $merchantId = config('payway.merchant_id');
             $tranId     = 'REG-' . $registration->id . '-' . time();
+            $amount = number_format($registration->registration_fee, 2, '.', '');
             DB::table('payment_transactions')->insert([
                 'tran_id' => $tranId,
-                'status' => 'PENDING',
+                 'amount'  => $amount,
+                'status'  => 'PENDING',
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
             DB::table('registrations')
                 ->where('id', $registration->id)
                 ->update([
