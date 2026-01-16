@@ -11,27 +11,36 @@ use App\Models\User;
 
 class UserSettingsController extends Controller
 {
+     public function __construct()
+    {
+        $this->middleware('auth:sanctum');
+    }
     /**
      * Get current user profile
      */
-    public function profile(Request $request)
-    {
-        /** @var User $user */
-        $user = $request->user();
+ public function profile(Request $request)
+{
+    $user = $request->user();
 
+    if (!$user) {
         return response()->json([
-            'user' => [
-                'id'    => $user->id,
-                'name'  => $user->name,
-                'email' => $user->email,
-                'role'  => $user->role,
-                'profile_picture_url' => $user->profile_picture_path
-                    ? url($user->profile_picture_path)
-                    : null,
-                'created_at' => $user->created_at,
-            ],
-        ]);
+            'message' => 'Unauthenticated'
+        ], 401);
     }
+
+    return response()->json([
+        'user' => [
+            'id'    => $user->id,
+            'name'  => $user->name,
+            'email' => $user->email,
+            'role'  => $user->role,
+            'profile_picture_url' => $user->profile_picture_path
+                ? url($user->profile_picture_path)
+                : null,
+            'created_at' => $user->created_at,
+        ],
+    ]);
+}
 
     /**
      * Update user name
