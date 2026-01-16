@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\UserSettingsController;
 |--------------------------------------------------------------------------
 */
 Route::post('/login', [AuthController::class, 'login']);
+ Route::post('/logout', [AuthController::class, 'logout']);
 Route::post('/register/save', [RegistrationController::class, 'store']); // ✅ STUDENT SELF-REGISTER
 Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
 
@@ -72,8 +73,6 @@ Route::prefix('payment')->group(function () {
 */
 Route::middleware(['auth:sanctum'])->group(function () {
    // Authentication
-    Route::post('/logout', [AuthController::class, 'logout']);
-    
     // User Profile & Settings
     Route::get('/user/profile', [UserSettingsController::class, 'profile']);
     Route::put('/user/update-name', [UserSettingsController::class, 'updateName']);
