@@ -30,7 +30,6 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleCors::class, // 🔥 REQUIRED FOR 403 FIX
             \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
-            \App\Http\Middleware\Cors::class,
         ]);
 
         $middleware->alias([
