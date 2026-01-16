@@ -14,8 +14,7 @@ use App\Http\Controllers\MajorSubjectController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\StudentController;
-use Illuminate\Routing\Middleware\ThrottleRequests;
-use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
+use App\Http\Controllers\Api\UserSettingsController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -71,8 +70,18 @@ Route::prefix('payment')->group(function () {
 | STUDENT ROUTES (LOGIN REQUIRED)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'role:student'])->group(function () {
-    // Student-only routes (profile, view own registration, etc.)
+Route::middleware(['auth:sanctum'])->group(function () {
+   // Authentication
+    Route::post('/logout', [AuthController::class, 'logout']);
+    
+    // User Profile & Settings
+    Route::get('/user/profile', [UserSettingsController::class, 'profile']);
+    Route::put('/user/update-name', [UserSettingsController::class, 'updateName']);
+    Route::put('/user/update-email', [UserSettingsController::class, 'updateEmail']);
+    Route::put('/user/change-password', [UserSettingsController::class, 'changePassword']);
+    Route::post('/user/upload-profile-picture', [UserSettingsController::class, 'uploadProfilePicture']);
+    Route::delete('/user/delete-profile-picture', [UserSettingsController::class, 'deleteProfilePicture']);
+    Route::delete('/user/delete-account', [UserSettingsController::class, 'deleteAccount']);
 });
 
 /*
