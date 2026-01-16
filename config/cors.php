@@ -27,9 +27,6 @@ return [
         'Content-Type',
         'X-Requested-With',
     ],
-
     'max_age' => 0,
-
-    // 🔑 IMPORTANT (you are using cookies / auth)
     'supports_credentials' => false,
 ];
