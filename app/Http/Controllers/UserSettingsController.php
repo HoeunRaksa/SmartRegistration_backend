@@ -11,10 +11,6 @@ use App\Models\User;
 
 class UserSettingsController extends Controller
 {
-     public function __construct()
-    {
-        $this->middleware('auth:sanctum');
-    }
     /**
      * Get current user profile
      */
