@@ -70,7 +70,7 @@ Route::prefix('payment')->group(function () {
 | STUDENT ROUTES (LOGIN REQUIRED)
 |--------------------------------------------------------------------------
 */
-
+Route::middleware(['auth:sanctum'])->group(function () {
    // Authentication
     Route::post('/logout', [AuthController::class, 'logout']);
     
@@ -82,7 +82,7 @@ Route::prefix('payment')->group(function () {
     Route::post('/user/upload-profile-picture', [UserSettingsController::class, 'uploadProfilePicture']);
     Route::delete('/user/delete-profile-picture', [UserSettingsController::class, 'deleteProfilePicture']);
     Route::delete('/user/delete-account', [UserSettingsController::class, 'deleteAccount']);
-
+});
 
 /*
 |--------------------------------------------------------------------------
