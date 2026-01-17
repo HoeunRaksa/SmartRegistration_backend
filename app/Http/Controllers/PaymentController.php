@@ -150,7 +150,7 @@ class PaymentController extends Controller
             );
 
             if (!$response->successful()) {
-                DB::rollBack(); // 🔴 MUST ADD
+                DB::rollBack();
                 Log::error('ABA QR Error', [
                     'status' => $response->status(),
                     'body'   => $response->body(),
