@@ -22,7 +22,7 @@ class MajorController extends Controller
             'major_name'        => 'required|string|max:255',
             'description'       => 'nullable|string',
             'department_id'     => 'required|exists:departments,id',
-            'registration_fee'  => 'nullable|numeric|min:0|max:99999999.99', // Max 10 digits, 2 decimals
+            'registration_fee'  => 'nullable|numeric|min:0|max:99999999.99',
         ]);
 
         // Set default fee if not provided

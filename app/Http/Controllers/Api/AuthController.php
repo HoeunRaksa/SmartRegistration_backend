@@ -47,7 +47,7 @@ class AuthController extends Controller
         $user = $request->user();
 
         if ($user) {
-            $user->tokens()->delete(); // revoke all tokens
+            $user->tokens()->delete();
         }
 
         return response()->json([
