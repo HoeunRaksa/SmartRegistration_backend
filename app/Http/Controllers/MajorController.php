@@ -24,7 +24,7 @@ class MajorController extends Controller
             'description'       => 'nullable|string',
             'department_id'     => 'required|exists:departments,id',
             'registration_fee'  => 'nullable|numeric|min:0|max:99999999.99',
-            'image'             => 'nullable|image|mimes:jpeg,jpg,png,gif,webp|max:2048',
+            'image'             => 'nullable|image|mimes:jpeg,jpg,png,gif,webp|max:20480',
         ]);
 
         // Set default fee if not provided
