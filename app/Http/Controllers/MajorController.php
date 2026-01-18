@@ -4,8 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Major;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
-
 class MajorController extends Controller
 {
     // GET: /api/majors

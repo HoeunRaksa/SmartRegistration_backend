@@ -15,6 +15,7 @@ use App\Http\Controllers\CourseController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\Api\UserSettingsController;
+use App\Http\Controllers\RegistrationReportController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -107,6 +108,17 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::get('/registers/{id}', [RegistrationController::class, 'show']); 
     Route::put('/registers/{id}', [RegistrationController::class, 'update']);
     Route::delete('/registers/{id}', [RegistrationController::class, 'destroy']);
+
+    Route::prefix('reports')->group(function () {
+    // Get registration report data (with filters)
+    Route::get('/registrations', [RegistrationReportController::class, 'generate']);
+    
+    // Export registration report to PDF
+    Route::get('/registrations/pdf', [RegistrationReportController::class, 'exportPdf']);
+    
+    // Get summary statistics
+    Route::get('/registrations/summary', [RegistrationReportController::class, 'summary']);
+});
     
     // Students
     Route::get('/students', [StudentController::class, 'index']);
