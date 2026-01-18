@@ -52,19 +52,52 @@ class RegistrationReportController extends Controller
         // Get results
         $registrations = $query->orderBy('created_at', 'desc')->get();
 
+        // Transform registrations to ensure proper structure
+        $transformedRegistrations = $registrations->map(function ($reg) {
+            return [
+                'id' => $reg->id,
+                'full_name_en' => $reg->full_name_en,
+                'full_name_kh' => $reg->full_name_kh,
+                'gender' => $reg->gender,
+                'date_of_birth' => $reg->date_of_birth,
+                'personal_email' => $reg->personal_email,
+                'phone_number' => $reg->phone_number,
+                'payment_status' => $reg->payment_status,
+                'payment_amount' => $reg->payment_amount ?? 0,
+                'shift' => $reg->shift,
+                'academic_year' => $reg->academic_year,
+                'created_at' => $reg->created_at,
+                'department' => $reg->department ? [
+                    'id' => $reg->department->id,
+                    'name' => $reg->department->name,
+                    'code' => $reg->department->code ?? null,
+                ] : null,
+                'major' => $reg->major ? [
+                    'id' => $reg->major->id,
+                    'major_name' => $reg->major->major_name,
+                ] : null,
+                'student' => $reg->student ? [
+                    'id' => $reg->student->id,
+                    'student_code' => $reg->student->student_code,
+                ] : null,
+            ];
+        });
+
         // Calculate statistics
         $stats = [
             'total_registrations' => $registrations->count(),
             'total_male' => $registrations->where('gender', 'Male')->count(),
             'total_female' => $registrations->where('gender', 'Female')->count(),
-            'payment_pending' => $registrations->where('payment_status', 'PENDING')->count(),
-            'payment_completed' => $registrations->where('payment_status', 'COMPLETED')->count(),
-            'total_amount' => $registrations->sum('payment_amount'),
-            'paid_amount' => $registrations->where('payment_status', 'COMPLETED')->sum('payment_amount'),
+            'payment_pending' => $registrations->whereIn('payment_status', ['PENDING', null])->count(),
+            'payment_completed' => $registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->count(),
+            'total_amount' => $registrations->sum('payment_amount') ?? 0,
+            'paid_amount' => $registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->sum('payment_amount') ?? 0,
         ];
 
         // Group by department
-        $by_department = $registrations->groupBy('department.name')->map(function ($items) {
+        $by_department = $registrations->filter(function ($reg) {
+            return $reg->department !== null;
+        })->groupBy('department.name')->map(function ($items) {
             return [
                 'count' => $items->count(),
                 'male' => $items->where('gender', 'Male')->count(),
@@ -73,7 +106,9 @@ class RegistrationReportController extends Controller
         });
 
         // Group by major
-        $by_major = $registrations->groupBy('major.major_name')->map(function ($items) {
+        $by_major = $registrations->filter(function ($reg) {
+            return $reg->major !== null;
+        })->groupBy('major.major_name')->map(function ($items) {
             return [
                 'count' => $items->count(),
                 'male' => $items->where('gender', 'Male')->count(),
@@ -84,7 +119,7 @@ class RegistrationReportController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'registrations' => $registrations,
+                'registrations' => $transformedRegistrations,
                 'statistics' => $stats,
                 'by_department' => $by_department,
                 'by_major' => $by_major,
@@ -140,10 +175,10 @@ class RegistrationReportController extends Controller
             'total_registrations' => $registrations->count(),
             'total_male' => $registrations->where('gender', 'Male')->count(),
             'total_female' => $registrations->where('gender', 'Female')->count(),
-            'payment_pending' => $registrations->where('payment_status', 'PENDING')->count(),
-            'payment_completed' => $registrations->where('payment_status', 'COMPLETED')->count(),
-            'total_amount' => $registrations->sum('payment_amount'),
-            'paid_amount' => $registrations->where('payment_status', 'COMPLETED')->sum('payment_amount'),
+            'payment_pending' => $registrations->whereIn('payment_status', ['PENDING', null])->count(),
+            'payment_completed' => $registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->count(),
+            'total_amount' => $registrations->sum('payment_amount') ?? 0,
+            'paid_amount' => $registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->sum('payment_amount') ?? 0,
         ];
 
         // Prepare data for PDF
