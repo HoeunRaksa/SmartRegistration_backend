@@ -162,3 +162,18 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 | DEBUG (REMOVE IN PRODUCTION)
 |--------------------------------------------------------------------------
 */
+Route::get('/test-registrations', function () {
+    $data = [
+        'total_registrations' => \App\Models\Registration::count(),
+        'total_students' => \App\Models\Student::count(),
+        'sample_registrations' => \App\Models\Registration::with(['department', 'major', 'student'])
+            ->limit(3)
+            ->get(),
+    ];
+    
+    return response()->json([
+        'success' => true,
+        'message' => 'Test endpoint',
+        'data' => $data
+    ]);
+});

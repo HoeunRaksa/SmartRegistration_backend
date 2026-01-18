@@ -3,54 +3,89 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use App\Models\Registration;
-use Barryvdh\DomPDF\Facade\Pdf;
+use App\Models\Student;
+use App\Models\Department;
+use App\Models\Major;
 
 class RegistrationReportController extends Controller
 {
+    /**
+     * TEST METHOD - Check if data exists
+     * Add this temporarily to debug
+     */
+    public function test()
+    {
+        $totalRegistrations = Registration::count();
+        $totalStudents = Student::count();
+        $totalDepartments = Department::count();
+        $totalMajors = Major::count();
+        
+        $sampleRegistration = Registration::with(['department', 'major', 'student'])->first();
+        
+        return response()->json([
+            'success' => true,
+            'counts' => [
+                'registrations' => $totalRegistrations,
+                'students' => $totalStudents,
+                'departments' => $totalDepartments,
+                'majors' => $totalMajors,
+            ],
+            'sample_registration' => $sampleRegistration,
+            'all_registrations_raw' => Registration::limit(5)->get(),
+        ]);
+    }
+
     /**
      * Generate registration report based on filters
      */
     public function generate(Request $request)
     {
+        // Start with all registrations
         $query = Registration::with(['department', 'major', 'student']);
 
-        // Apply filters
-        if ($request->has('department_id') && $request->department_id) {
+        // Apply filters ONLY if they have values
+        if ($request->filled('department_id')) {
             $query->where('department_id', $request->department_id);
         }
 
-        if ($request->has('major_id') && $request->major_id) {
+        if ($request->filled('major_id')) {
             $query->where('major_id', $request->major_id);
         }
 
-        if ($request->has('payment_status') && $request->payment_status) {
+        if ($request->filled('payment_status')) {
             $query->where('payment_status', $request->payment_status);
         }
 
-        if ($request->has('academic_year') && $request->academic_year) {
+        if ($request->filled('academic_year')) {
             $query->where('academic_year', $request->academic_year);
         }
 
-        if ($request->has('shift') && $request->shift) {
+        if ($request->filled('shift')) {
             $query->where('shift', $request->shift);
         }
 
-        if ($request->has('gender') && $request->gender) {
+        if ($request->filled('gender')) {
             $query->where('gender', $request->gender);
         }
 
-        if ($request->has('date_from') && $request->date_from) {
+        if ($request->filled('date_from')) {
             $query->whereDate('created_at', '>=', $request->date_from);
         }
 
-        if ($request->has('date_to') && $request->date_to) {
+        if ($request->filled('date_to')) {
             $query->whereDate('created_at', '<=', $request->date_to);
         }
 
         // Get results
         $registrations = $query->orderBy('created_at', 'desc')->get();
+
+        // Debug info
+        $debug = [
+            'total_in_db' => Registration::count(),
+            'after_filters' => $registrations->count(),
+            'filters_applied' => $request->all(),
+        ];
 
         // Transform registrations to ensure proper structure
         $transformedRegistrations = $registrations->map(function ($reg) {
@@ -90,8 +125,8 @@ class RegistrationReportController extends Controller
             'total_female' => $registrations->where('gender', 'Female')->count(),
             'payment_pending' => $registrations->whereIn('payment_status', ['PENDING', null])->count(),
             'payment_completed' => $registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->count(),
-            'total_amount' => $registrations->sum('payment_amount') ?? 0,
-            'paid_amount' => $registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->sum('payment_amount') ?? 0,
+            'total_amount' => (float)$registrations->sum('payment_amount'),
+            'paid_amount' => (float)$registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->sum('payment_amount'),
         ];
 
         // Group by department
@@ -118,6 +153,7 @@ class RegistrationReportController extends Controller
 
         return response()->json([
             'success' => true,
+            'debug' => $debug, // Remove this in production
             'data' => [
                 'registrations' => $transformedRegistrations,
                 'statistics' => $stats,
@@ -136,35 +172,35 @@ class RegistrationReportController extends Controller
         $query = Registration::with(['department', 'major', 'student']);
 
         // Apply same filters as generate
-        if ($request->has('department_id') && $request->department_id) {
+        if ($request->filled('department_id')) {
             $query->where('department_id', $request->department_id);
         }
 
-        if ($request->has('major_id') && $request->major_id) {
+        if ($request->filled('major_id')) {
             $query->where('major_id', $request->major_id);
         }
 
-        if ($request->has('payment_status') && $request->payment_status) {
+        if ($request->filled('payment_status')) {
             $query->where('payment_status', $request->payment_status);
         }
 
-        if ($request->has('academic_year') && $request->academic_year) {
+        if ($request->filled('academic_year')) {
             $query->where('academic_year', $request->academic_year);
         }
 
-        if ($request->has('shift') && $request->shift) {
+        if ($request->filled('shift')) {
             $query->where('shift', $request->shift);
         }
 
-        if ($request->has('gender') && $request->gender) {
+        if ($request->filled('gender')) {
             $query->where('gender', $request->gender);
         }
 
-        if ($request->has('date_from') && $request->date_from) {
+        if ($request->filled('date_from')) {
             $query->whereDate('created_at', '>=', $request->date_from);
         }
 
-        if ($request->has('date_to') && $request->date_to) {
+        if ($request->filled('date_to')) {
             $query->whereDate('created_at', '<=', $request->date_to);
         }
 
@@ -177,8 +213,8 @@ class RegistrationReportController extends Controller
             'total_female' => $registrations->where('gender', 'Female')->count(),
             'payment_pending' => $registrations->whereIn('payment_status', ['PENDING', null])->count(),
             'payment_completed' => $registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->count(),
-            'total_amount' => $registrations->sum('payment_amount') ?? 0,
-            'paid_amount' => $registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->sum('payment_amount') ?? 0,
+            'total_amount' => (float)$registrations->sum('payment_amount'),
+            'paid_amount' => (float)$registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->sum('payment_amount'),
         ];
 
         // Prepare data for PDF
@@ -190,7 +226,7 @@ class RegistrationReportController extends Controller
         ];
 
         // Generate PDF
-        $pdf = Pdf::loadView('reports.registration', $data);
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('reports.registration', $data);
         $pdf->setPaper('a4', 'landscape');
 
         // Generate filename
@@ -207,7 +243,7 @@ class RegistrationReportController extends Controller
         $query = Registration::query();
 
         // Apply filters if provided
-        if ($request->has('academic_year') && $request->academic_year) {
+        if ($request->filled('academic_year')) {
             $query->where('academic_year', $request->academic_year);
         }
 
@@ -220,15 +256,15 @@ class RegistrationReportController extends Controller
                 'female' => $registrations->where('gender', 'Female')->count(),
             ],
             'by_payment_status' => [
-                'pending' => $registrations->where('payment_status', 'PENDING')->count(),
-                'completed' => $registrations->where('payment_status', 'COMPLETED')->count(),
+                'pending' => $registrations->whereIn('payment_status', ['PENDING', null])->count(),
+                'completed' => $registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->count(),
                 'failed' => $registrations->where('payment_status', 'FAILED')->count(),
             ],
             'by_shift' => $registrations->groupBy('shift')->map->count(),
             'financial' => [
-                'total_amount' => $registrations->sum('payment_amount'),
-                'paid_amount' => $registrations->where('payment_status', 'COMPLETED')->sum('payment_amount'),
-                'pending_amount' => $registrations->where('payment_status', 'PENDING')->sum('payment_amount'),
+                'total_amount' => (float)$registrations->sum('payment_amount'),
+                'paid_amount' => (float)$registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->sum('payment_amount'),
+                'pending_amount' => (float)$registrations->whereIn('payment_status', ['PENDING', null])->sum('payment_amount'),
             ],
         ];
 
