@@ -24,7 +24,7 @@ class MajorController extends Controller
             'description'       => 'nullable|string',
             'department_id'     => 'required|exists:departments,id',
             'registration_fee'  => 'nullable|numeric|min:0|max:99999999.99',
-            'image'             => 'nullable|image|mimes:jpeg,jpg,png,gif,webp|max:20480',
+            'image'             => 'nullable|image|mimes:jpeg,jpg,png,gif,webp|max:2048',
         ]);
 
         // Set default fee if not provided
@@ -37,8 +37,14 @@ class MajorController extends Controller
             $file = $request->file('image');
             $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
             
+            // Create directory if it doesn't exist
+            $uploadPath = public_path('uploads/majors');
+            if (!file_exists($uploadPath)) {
+                mkdir($uploadPath, 0755, true);
+            }
+            
             // Store file in public/uploads/majors directory
-            $file->move(public_path('uploads/majors'), $filename);
+            $file->move($uploadPath, $filename);
             
             $validated['image'] = 'uploads/majors/' . $filename;
         }
@@ -82,8 +88,14 @@ class MajorController extends Controller
             $file = $request->file('image');
             $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
             
+            // Create directory if it doesn't exist
+            $uploadPath = public_path('uploads/majors');
+            if (!file_exists($uploadPath)) {
+                mkdir($uploadPath, 0755, true);
+            }
+            
             // Store file in public/uploads/majors directory
-            $file->move(public_path('uploads/majors'), $filename);
+            $file->move($uploadPath, $filename);
             
             $validated['image'] = 'uploads/majors/' . $filename;
         }
