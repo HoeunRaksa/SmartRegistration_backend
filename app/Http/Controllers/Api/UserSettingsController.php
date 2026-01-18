@@ -5,38 +5,39 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\File;
 use Illuminate\Validation\Rules\Password;
 use App\Models\User;
+use Illuminate\Support\Facades\Log;
 
 class UserSettingsController extends Controller
 {
     /**
      * Get current user profile
      */
- public function profile(Request $request)
-{
-    $user = $request->user();
+    public function profile(Request $request)
+    {
+        $user = $request->user();
 
-    if (!$user) {
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+
         return response()->json([
-            'message' => 'Unauthenticated'
-        ], 401);
+            'user' => [
+                'id'    => $user->id,
+                'name'  => $user->name,
+                'email' => $user->email,
+                'role'  => $user->role,
+                'profile_picture_url' => $user->profile_picture_path
+                    ? url($user->profile_picture_path)
+                    : null,
+                'created_at' => $user->created_at,
+            ],
+        ]);
     }
-
-    return response()->json([
-        'user' => [
-            'id'    => $user->id,
-            'name'  => $user->name,
-            'email' => $user->email,
-            'role'  => $user->role,
-            'profile_picture_url' => $user->profile_picture_path
-                ? url($user->profile_picture_path)
-                : null,
-            'created_at' => $user->created_at,
-        ],
-    ]);
-}
 
     /**
      * Update user name
@@ -134,9 +135,6 @@ class UserSettingsController extends Controller
         $user->password = Hash::make($request->new_password);
         $user->save();
 
-        // Optionally revoke all tokens except current
-        // $user->tokens()->where('id', '!=', $request->user()->currentAccessToken()->id)->delete();
-
         return response()->json([
             'message' => 'Password changed successfully',
         ]);
@@ -148,33 +146,59 @@ class UserSettingsController extends Controller
     public function uploadProfilePicture(Request $request)
     {
         $request->validate([
-            'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048', // 2MB max
+            'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:2048', // 2MB max
         ]);
 
         /** @var User $user */
         $user = $request->user();
 
-        // Delete old profile picture if exists
-        if ($user->profile_picture_path && Storage::disk('public')->exists($user->profile_picture_path)) {
-            Storage::disk('public')->delete($user->profile_picture_path);
+        try {
+            $oldImagePath = $user->profile_picture_path;
+
+            // Create directory if not exists
+            $uploadPath = public_path('uploads/profiles');
+            if (!File::exists($uploadPath)) {
+                File::makeDirectory($uploadPath, 0755, true);
+            }
+
+            // Generate unique filename
+            $image = $request->file('profile_picture');
+            $filename = time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
+            
+            // Move to public directory
+            $image->move($uploadPath, $filename);
+            $imagePath = 'uploads/profiles/' . $filename;
+
+            // Update user
+            $user->profile_picture_path = $imagePath;
+            $user->save();
+
+            // Delete old image
+            if ($oldImagePath && File::exists(public_path($oldImagePath))) {
+                File::delete(public_path($oldImagePath));
+            }
+
+            return response()->json([
+                'message' => 'Profile picture uploaded successfully',
+                'user' => [
+                    'id'    => $user->id,
+                    'name'  => $user->name,
+                    'email' => $user->email,
+                    'role'  => $user->role,
+                    'profile_picture_url' => url($imagePath),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to upload profile picture', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to upload profile picture',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        // Store new profile picture
-        $path = $request->file('profile_picture')->store('profile_pictures', 'public');
-        
-        $user->profile_picture_path = 'storage/' . $path;
-        $user->save();
-
-        return response()->json([
-            'message' => 'Profile picture uploaded successfully',
-            'user' => [
-                'id'    => $user->id,
-                'name'  => $user->name,
-                'email' => $user->email,
-                'role'  => $user->role,
-                'profile_picture_url' => url($user->profile_picture_path),
-            ],
-        ]);
     }
 
     /**
@@ -185,23 +209,37 @@ class UserSettingsController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        if ($user->profile_picture_path && Storage::disk('public')->exists($user->profile_picture_path)) {
-            Storage::disk('public')->delete($user->profile_picture_path);
+        try {
+            $imagePath = $user->profile_picture_path;
+
+            // Delete image file from public folder
+            if ($imagePath && File::exists(public_path($imagePath))) {
+                File::delete(public_path($imagePath));
+            }
+
+            $user->profile_picture_path = null;
+            $user->save();
+
+            return response()->json([
+                'message' => 'Profile picture deleted successfully',
+                'user' => [
+                    'id'    => $user->id,
+                    'name'  => $user->name,
+                    'email' => $user->email,
+                    'role'  => $user->role,
+                    'profile_picture_url' => null,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to delete profile picture', [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to delete profile picture',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        $user->profile_picture_path = null;
-        $user->save();
-
-        return response()->json([
-            'message' => 'Profile picture deleted successfully',
-            'user' => [
-                'id'    => $user->id,
-                'name'  => $user->name,
-                'email' => $user->email,
-                'role'  => $user->role,
-                'profile_picture_url' => null,
-            ],
-        ]);
     }
 
     /**
@@ -223,19 +261,30 @@ class UserSettingsController extends Controller
             ], 422);
         }
 
-        // Delete profile picture if exists
-        if ($user->profile_picture_path && Storage::disk('public')->exists($user->profile_picture_path)) {
-            Storage::disk('public')->delete($user->profile_picture_path);
+        try {
+            // Delete profile picture if exists
+            if ($user->profile_picture_path && File::exists(public_path($user->profile_picture_path))) {
+                File::delete(public_path($user->profile_picture_path));
+            }
+
+            // Revoke all tokens
+            $user->tokens()->delete();
+
+            // Delete user
+            $user->delete();
+
+            return response()->json([
+                'message' => 'Account deleted successfully',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to delete account', [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to delete account',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        // Revoke all tokens
-        $user->tokens()->delete();
-
-        // Delete user
-        $user->delete();
-
-        return response()->json([
-            'message' => 'Account deleted successfully',
-        ]);
     }
 }

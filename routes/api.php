@@ -82,7 +82,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('/user/change-password', [UserSettingsController::class, 'changePassword']);
     Route::post('/user/upload-profile-picture', [UserSettingsController::class, 'uploadProfilePicture']);
     Route::delete('/user/delete-profile-picture', [UserSettingsController::class, 'deleteProfilePicture']);
-    Route::delete('/user/delete-account', [UserSettingsController::class, 'deleteAccount']);
+    Route::post('/user/delete-account', [UserSettingsController::class, 'deleteAccount']);
 });
 
 /*
