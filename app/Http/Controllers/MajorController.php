@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Major;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class MajorController extends Controller
 {
@@ -23,11 +24,23 @@ class MajorController extends Controller
             'description'       => 'nullable|string',
             'department_id'     => 'required|exists:departments,id',
             'registration_fee'  => 'nullable|numeric|min:0|max:99999999.99',
+            'image'             => 'nullable|image|mimes:jpeg,jpg,png,gif,webp|max:2048',
         ]);
 
         // Set default fee if not provided
         if (!isset($validated['registration_fee'])) {
             $validated['registration_fee'] = 100.00;
+        }
+
+        // Handle image upload
+        if ($request->hasFile('image')) {
+            $file = $request->file('image');
+            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            
+            // Store file in public/uploads/majors directory
+            $file->move(public_path('uploads/majors'), $filename);
+            
+            $validated['image'] = 'uploads/majors/' . $filename;
         }
 
         $major = Major::create($validated);
@@ -56,7 +69,24 @@ class MajorController extends Controller
             'description'       => 'nullable|string',
             'department_id'     => 'sometimes|required|exists:departments,id',
             'registration_fee'  => 'nullable|numeric|min:0|max:99999999.99',
+            'image'             => 'nullable|image|mimes:jpeg,jpg,png,gif,webp|max:2048',
         ]);
+
+        // Handle image upload
+        if ($request->hasFile('image')) {
+            // Delete old image if exists
+            if ($major->image && file_exists(public_path($major->image))) {
+                unlink(public_path($major->image));
+            }
+
+            $file = $request->file('image');
+            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            
+            // Store file in public/uploads/majors directory
+            $file->move(public_path('uploads/majors'), $filename);
+            
+            $validated['image'] = 'uploads/majors/' . $filename;
+        }
 
         $major->update($validated);
 
@@ -66,7 +96,14 @@ class MajorController extends Controller
     // DELETE: /api/majors/{id}
     public function destroy($id)
     {
-        Major::findOrFail($id)->delete();
+        $major = Major::findOrFail($id);
+        
+        // Delete image if exists
+        if ($major->image && file_exists(public_path($major->image))) {
+            unlink(public_path($major->image));
+        }
+        
+        $major->delete();
 
         return response()->json(['message' => 'Major deleted']);
     }
