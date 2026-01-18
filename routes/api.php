@@ -83,6 +83,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/user/upload-profile-picture', [UserSettingsController::class, 'uploadProfilePicture']);
     Route::delete('/user/delete-profile-picture', [UserSettingsController::class, 'deleteProfilePicture']);
     Route::post('/user/delete-account', [UserSettingsController::class, 'deleteAccount']);
+
+    Route::apiResource('students', StudentController::class);
+    Route::post('/students/{id}/reset-password', [StudentController::class, 'resetPassword']);
 });
 
 /*
