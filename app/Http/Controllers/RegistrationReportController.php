@@ -41,7 +41,7 @@ class RegistrationReportController extends Controller
      */
     public function generate(Request $request)
     {
-        // Start with all registrations
+        // Start with all registrations (not filtered by any role or student status)
         $query = Registration::with(['department', 'major', 'student']);
 
         // Apply filters ONLY if they have values
@@ -77,31 +77,44 @@ class RegistrationReportController extends Controller
             $query->whereDate('created_at', '<=', $request->date_to);
         }
 
-        // Get results
+        // Get ALL registrations (including those without students)
         $registrations = $query->orderBy('created_at', 'desc')->get();
 
         // Debug info
         $debug = [
             'total_in_db' => Registration::count(),
             'after_filters' => $registrations->count(),
-            'filters_applied' => $request->all(),
+            'filters_applied' => $request->only([
+                'department_id', 'major_id', 'payment_status', 
+                'academic_year', 'shift', 'gender', 'date_from', 'date_to'
+            ]),
+            'filters_that_were_filled' => array_filter($request->only([
+                'department_id', 'major_id', 'payment_status', 
+                'academic_year', 'shift', 'gender', 'date_from', 'date_to'
+            ])),
         ];
 
-        // Transform registrations to ensure proper structure
+        // Transform registrations - include ALL data
         $transformedRegistrations = $registrations->map(function ($reg) {
             return [
                 'id' => $reg->id,
+                'first_name' => $reg->first_name,
+                'last_name' => $reg->last_name,
                 'full_name_en' => $reg->full_name_en,
                 'full_name_kh' => $reg->full_name_kh,
                 'gender' => $reg->gender,
                 'date_of_birth' => $reg->date_of_birth,
                 'personal_email' => $reg->personal_email,
                 'phone_number' => $reg->phone_number,
-                'payment_status' => $reg->payment_status,
-                'payment_amount' => $reg->payment_amount ?? 0,
+                'address' => $reg->address,
+                'payment_status' => $reg->payment_status ?? 'PENDING',
+                'payment_amount' => $reg->payment_amount ?? 100.00,
+                'payment_date' => $reg->payment_date,
                 'shift' => $reg->shift,
+                'batch' => $reg->batch,
                 'academic_year' => $reg->academic_year,
-                'created_at' => $reg->created_at,
+                'faculty' => $reg->faculty,
+                'created_at' => $reg->created_at ? $reg->created_at->format('Y-m-d H:i:s') : null,
                 'department' => $reg->department ? [
                     'id' => $reg->department->id,
                     'name' => $reg->department->name,
@@ -114,25 +127,30 @@ class RegistrationReportController extends Controller
                 'student' => $reg->student ? [
                     'id' => $reg->student->id,
                     'student_code' => $reg->student->student_code,
+                    'user_id' => $reg->student->user_id,
                 ] : null,
             ];
         });
 
-        // Calculate statistics
+        // Calculate statistics - ALL registrations
         $stats = [
             'total_registrations' => $registrations->count(),
             'total_male' => $registrations->where('gender', 'Male')->count(),
             'total_female' => $registrations->where('gender', 'Female')->count(),
-            'payment_pending' => $registrations->whereIn('payment_status', ['PENDING', null])->count(),
-            'payment_completed' => $registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->count(),
-            'total_amount' => (float)$registrations->sum('payment_amount'),
-            'paid_amount' => (float)$registrations->whereIn('payment_status', ['COMPLETED', 'PAID'])->sum('payment_amount'),
+            'with_student_account' => $registrations->filter(fn($r) => $r->student !== null)->count(),
+            'without_student_account' => $registrations->filter(fn($r) => $r->student === null)->count(),
+            'payment_pending' => $registrations->filter(fn($r) => in_array($r->payment_status, ['PENDING', null]))->count(),
+            'payment_completed' => $registrations->filter(fn($r) => in_array($r->payment_status, ['COMPLETED', 'PAID']))->count(),
+            'total_amount' => (float)$registrations->sum(fn($r) => $r->payment_amount ?? 100.00),
+            'paid_amount' => (float)$registrations->filter(fn($r) => in_array($r->payment_status, ['COMPLETED', 'PAID']))->sum(fn($r) => $r->payment_amount ?? 100.00),
         ];
 
         // Group by department
         $by_department = $registrations->filter(function ($reg) {
             return $reg->department !== null;
-        })->groupBy('department.name')->map(function ($items) {
+        })->groupBy(function($reg) {
+            return $reg->department->name;
+        })->map(function ($items) {
             return [
                 'count' => $items->count(),
                 'male' => $items->where('gender', 'Male')->count(),
@@ -143,7 +161,9 @@ class RegistrationReportController extends Controller
         // Group by major
         $by_major = $registrations->filter(function ($reg) {
             return $reg->major !== null;
-        })->groupBy('major.major_name')->map(function ($items) {
+        })->groupBy(function($reg) {
+            return $reg->major->major_name;
+        })->map(function ($items) {
             return [
                 'count' => $items->count(),
                 'male' => $items->where('gender', 'Male')->count(),
