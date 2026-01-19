@@ -15,6 +15,12 @@ use App\Http\Controllers\CourseController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\RegistrationReportController;
+use App\Http\Controllers\Api\StudentCourseController;
+use App\Http\Controllers\Api\StudentScheduleController;
+use App\Http\Controllers\Api\StudentGradeController;
+use App\Http\Controllers\Api\StudentAssignmentController;
+use App\Http\Controllers\Api\StudentAttendanceController;
+use App\Http\Controllers\Api\StudentMessageController;
 
 /*
 |--------------------------------------------------------------------------
@@ -157,6 +163,43 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::patch('/{id}', [StaffController::class, 'update']);
         Route::delete('/{id}', [StaffController::class, 'destroy']);
     });
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| DEBUG Student
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(function () {
+
+    // Courses
+    Route::get('/courses/enrolled', [StudentCourseController::class, 'getEnrolledCourses']);
+    Route::get('/courses/available', [StudentCourseController::class, 'getAvailableCourses']);
+    Route::post('/courses/enroll', [StudentCourseController::class, 'enrollCourse']);
+    Route::delete('/courses/{courseId}/drop', [StudentCourseController::class, 'dropCourse']);
+
+    // Schedule
+    Route::get('/schedule', [StudentScheduleController::class, 'getSchedule']);
+    Route::get('/schedule/today', [StudentScheduleController::class, 'getTodaySchedule']);
+
+    // Grades
+    Route::get('/grades', [StudentGradeController::class, 'getGrades']);
+    Route::get('/grades/gpa', [StudentGradeController::class, 'getGpa']);
+
+    // Assignments
+    Route::get('/assignments', [StudentAssignmentController::class, 'getAssignments']);
+    Route::post('/assignments/submit', [StudentAssignmentController::class, 'submitAssignment']);
+
+    // Attendance
+    Route::get('/attendance', [StudentAttendanceController::class, 'getAttendance']);
+    Route::get('/attendance/stats', [StudentAttendanceController::class, 'getStats']);
+
+    // Messages
+    Route::get('/messages/conversations', [StudentMessageController::class, 'getConversations']);
+    Route::get('/messages/{conversationId}', [StudentMessageController::class, 'getMessages']);
+    Route::post('/messages/send', [StudentMessageController::class, 'sendMessage']);
 });
 
 /*
