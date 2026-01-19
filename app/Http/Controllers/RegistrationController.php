@@ -32,21 +32,42 @@ class RegistrationController extends Controller
         ]);
 
         // Check if already registered
-        $exists = DB::table('registrations')
-            ->when($validated['personal_email'] ?? null, function ($q) use ($validated) {
-                $q->where('personal_email', $validated['personal_email']);
-            })
-            ->when($validated['phone_number'] ?? null, function ($q) use ($validated) {
-                $q->orWhere('phone_number', $validated['phone_number']);
-            })
-            ->first();
+    $exists = DB::table('registrations')
+    ->where(function ($q) use ($validated) {
+        if (!empty($validated['personal_email'])) {
+            $q->where('personal_email', $validated['personal_email']);
+        }
+        if (!empty($validated['phone_number'])) {
+            $q->orWhere('phone_number', $validated['phone_number']);
+        }
+    })
+    ->orderByDesc('id')
+    ->first();
+
 
         if ($exists) {
+
+            // ✅ If already PAID -> block new registration
+            if (($exists->payment_status ?? null) === 'PAID') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Registration already paid. Cannot register again.'
+                ], 409);
+            }
+
+            // ✅ If NOT PAID -> allow continue payment (return existing data, not create again)
             return response()->json([
-                'success' => false,
-                'message' => 'Registration already exists'
-            ], 409);
+                'success' => true,
+                'message' => 'Registration already exists but not paid yet. Continue payment.',
+                'data' => [
+                    'registration_id' => $exists->id,
+                    'payment_amount'  => $exists->payment_amount,
+                    'payment_status'  => $exists->payment_status,
+                    'payment_tran_id' => $exists->payment_tran_id,
+                ],
+            ], 200);
         }
+
 
         DB::beginTransaction();
 
