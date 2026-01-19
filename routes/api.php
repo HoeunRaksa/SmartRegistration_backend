@@ -137,6 +137,11 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::patch('/departments/{department}', [DepartmentController::class, 'update']);
     Route::delete('/departments/{department}', [DepartmentController::class, 'destroy']);
 
+    Route::get('departments/faculties', [DepartmentController::class, 'getFaculties']);
+    Route::get('departments/statistics', [DepartmentController::class, 'getStatistics']);
+    Route::apiResource('departments', DepartmentController::class);
+    Route::get('departments/{department_id}/majors', [DepartmentController::class, 'majors']);
+
     // Majors (WRITE ONLY)
     Route::post('/majors', [MajorController::class, 'store']);
     Route::put('/majors/{major}', [MajorController::class, 'update']);
