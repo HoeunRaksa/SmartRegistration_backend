@@ -16,7 +16,7 @@ class RegistrationController extends Controller
     public function store(Request $request)
     {
         Log::info('Registration request received');
-        
+
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name'  => 'required|string|max:255',
@@ -53,7 +53,7 @@ class RegistrationController extends Controller
         try {
             // Get major to get registration fee
             $major = Major::findOrFail($request->major_id);
-            
+
             $profilePicturePath = null;
             if ($request->hasFile('profile_picture') && $request->file('profile_picture')->isValid()) {
                 $uploadPath = public_path('uploads/profiles');
@@ -64,10 +64,10 @@ class RegistrationController extends Controller
                 $image = $request->file('profile_picture');
                 $extension = $image->getClientOriginalExtension();
                 $filename = time() . '_' . uniqid() . '.' . $extension;
-                
+
                 $image->move($uploadPath, $filename);
                 $profilePicturePath = 'uploads/profiles/' . $filename;
-                
+
                 Log::info('Profile picture uploaded successfully: ' . $profilePicturePath);
             }
 
@@ -87,12 +87,12 @@ class RegistrationController extends Controller
                 'current_address' => $request->current_address,
                 'phone_number' => $request->phone_number,
                 'personal_email' => $request->personal_email,
-                
+
                 // Education Info
                 'high_school_name' => $request->high_school_name,
                 'graduation_year' => $request->graduation_year,
                 'grade12_result' => $request->grade12_result,
-                
+
                 // Department & Study Info
                 'department_id' => $request->department_id,
                 'major_id' => $request->major_id,
@@ -101,36 +101,36 @@ class RegistrationController extends Controller
                 'batch' => $request->batch,
                 'academic_year' => $request->academic_year,
                 'profile_picture_path' => $profilePicturePath,
-                
+
                 // Parent Info
                 'father_name' => $request->father_name,
                 'fathers_date_of_birth' => $request->fathers_date_of_birth,
                 'fathers_nationality' => $request->fathers_nationality,
                 'fathers_job' => $request->fathers_job,
                 'fathers_phone_number' => $request->fathers_phone_number,
-                
+
                 'mother_name' => $request->mother_name,
                 'mother_date_of_birth' => $request->mother_date_of_birth,
                 'mother_nationality' => $request->mother_nationality,
                 'mothers_job' => $request->mothers_job,
                 'mother_phone_number' => $request->mother_phone_number,
-                
+
                 // Guardian Info
                 'guardian_name' => $request->guardian_name,
                 'guardian_phone_number' => $request->guardian_phone_number,
                 'emergency_contact_name' => $request->emergency_contact_name,
                 'emergency_contact_phone_number' => $request->emergency_contact_phone_number,
-                
+
                 // Payment Info (from major)
                 'payment_amount' => $major->registration_fee,
                 'payment_status' => 'PENDING',
-                
+
                 // Timestamps
                 'created_at' => now(),
                 'updated_at' => now(),
             ];
 
-            $registrationData = array_filter($registrationData, function($value) {
+            $registrationData = array_filter($registrationData, function ($value) {
                 return $value !== null;
             });
 
@@ -182,7 +182,6 @@ class RegistrationController extends Controller
                     'student_code' => $student->student_code,
                 ]
             ], 201);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -220,7 +219,7 @@ class RegistrationController extends Controller
             ->get();
 
         // Add profile picture URL
-        $registrations = $registrations->map(function($reg) {
+        $registrations = $registrations->map(function ($reg) {
             if ($reg->profile_picture_path) {
                 $reg->profile_picture_url = url($reg->profile_picture_path);
             }
@@ -304,7 +303,7 @@ class RegistrationController extends Controller
 
                 $image = $request->file('profile_picture');
                 $filename = time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
-                
+
                 $image->move($uploadPath, $filename);
                 $newProfilePicturePath = 'uploads/profiles/' . $filename;
                 $validated['profile_picture_path'] = $newProfilePicturePath;
@@ -319,14 +318,14 @@ class RegistrationController extends Controller
             if (isset($validated['first_name']) || isset($validated['last_name'])) {
                 $firstName = $validated['first_name'] ?? $registration->first_name;
                 $lastName = $validated['last_name'] ?? $registration->last_name;
-                
+
                 if (!isset($validated['full_name_en'])) {
                     $validated['full_name_en'] = $firstName . ' ' . $lastName;
                 }
             }
 
             $validated['updated_at'] = now();
-            $validated = array_filter($validated, function($value) {
+            $validated = array_filter($validated, function ($value) {
                 return $value !== null;
             });
 
@@ -335,7 +334,7 @@ class RegistrationController extends Controller
             $student = Student::where('registration_id', $id)->first();
             if ($student) {
                 $studentUpdate = [];
-                
+
                 if (isset($validated['full_name_kh'])) $studentUpdate['full_name_kh'] = $validated['full_name_kh'];
                 if (isset($validated['full_name_en'])) $studentUpdate['full_name_en'] = $validated['full_name_en'];
                 if (isset($validated['date_of_birth'])) $studentUpdate['date_of_birth'] = $validated['date_of_birth'];
@@ -359,7 +358,6 @@ class RegistrationController extends Controller
                 'message' => 'Registration updated successfully',
                 'profile_picture_path' => $newProfilePicturePath
             ]);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -407,7 +405,6 @@ class RegistrationController extends Controller
             DB::commit();
 
             return response()->json(['success' => true, 'message' => 'Registration deleted successfully']);
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Delete error: ' . $e->getMessage());
@@ -415,6 +412,67 @@ class RegistrationController extends Controller
                 'success' => false,
                 'message' => 'Delete failed: ' . $e->getMessage()
             ], 500);
+        }
+    }
+    public function payLater($id)
+    {
+        $reg = DB::table('registrations')->where('id', $id)->first();
+        if (!$reg) {
+            return response()->json(['success' => false, 'message' => 'Registration not found'], 404);
+        }
+
+        DB::table('registrations')->where('id', $id)->update([
+            'payment_status' => 'PENDING',
+            'updated_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment deferred. You can pay later at admin office.',
+        ]);
+    }
+    public function markPaidCash($id, Request $request)
+    {
+        $registration = DB::table('registrations')->where('id', $id)->first();
+        if (!$registration) {
+            return response()->json(['success' => false, 'message' => 'Registration not found'], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            $tranId = $registration->payment_tran_id ?? ('CASH-' . $id . '-' . time());
+            $amount = $registration->payment_amount ?? 0;
+
+            DB::table('payment_transactions')->updateOrInsert(
+                ['tran_id' => $tranId],
+                [
+                    'amount' => $amount,
+                    'status' => 'PAID',
+                    'updated_at' => now(),
+                    'created_at' => now(),
+                ]
+            );
+
+            DB::table('registrations')->where('id', $id)->update([
+                'payment_tran_id' => $tranId,
+                'payment_status' => 'PAID',
+                'payment_date' => now(),
+                'updated_at' => now(),
+            ]);
+
+            // upgrade user role (same logic as callback)
+            if ($registration->personal_email) {
+                User::where('email', $registration->personal_email)
+                    ->where('role', 'register')
+                    ->update(['role' => 'student']);
+            }
+
+            DB::commit();
+
+            return response()->json(['success' => true, 'message' => 'Marked as PAID (Cash).']);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => 'Failed: ' . $e->getMessage()], 500);
         }
     }
 }

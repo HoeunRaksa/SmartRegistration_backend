@@ -33,6 +33,7 @@ use App\Http\Controllers\RegistrationReportController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register/save', [RegistrationController::class, 'store']); // student self-register
+Route::post('/registrations/{id}/pay-later', [RegistrationController::class, 'payLater']);
 
 /*
 |--------------------------------------------------------------------------
@@ -106,6 +107,7 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::get('/registers/{id}', [RegistrationController::class, 'show']);
     Route::put('/registers/{id}', [RegistrationController::class, 'update']);
     Route::delete('/registers/{id}', [RegistrationController::class, 'destroy']);
+     Route::post('/admin/registrations/{id}/mark-paid', [RegistrationController::class, 'markPaidCash']);
 
     // Reports (filters => POST is better)
     Route::prefix('reports')->group(function () {
