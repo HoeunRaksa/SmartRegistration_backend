@@ -1,13 +1,16 @@
 <?php
 
 namespace App\Http\Controllers;
+
 use App\Http\Controllers\Controller;
 use App\Models\Student;
+use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\Support\Facades\Validator;
-
+use Illuminate\Validation\Rule;
 class StudentController extends Controller
 {
     /**
@@ -39,10 +42,12 @@ class StudentController extends Controller
      * POST /api/students
      * Usually called AFTER registration approval
      */
+
+
     /**
      * PUT /api/students/{id}
      */
-  public function update(Request $request, $id)
+public function update(Request $request, $id)
     {
         $student = Student::with(['user', 'registration'])->findOrFail($id);
 
@@ -149,6 +154,66 @@ class StudentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Update failed: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * DELETE /api/students/{id}
+     */
+    public function destroy($id)
+    {
+        $student = Student::findOrFail($id);
+        $student->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Student deleted successfully'
+        ]);
+    }
+
+    /**
+     * POST /api/students/{id}/reset-password
+     * Reset student password (Admin/Staff only)
+     */
+    public function resetPassword(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'new_password' => ['required', 'confirmed', Password::min(8)],
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            $student = Student::with('user')->findOrFail($id);
+
+            if (!$student->user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Student has no associated user account'
+                ], 404);
+            }
+
+            $user = $student->user;
+            $user->password = Hash::make($validated['new_password']);
+            $user->save();
+
+            // Optionally revoke all existing tokens to force re-login
+            $user->tokens()->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Password reset successfully. Student must login with new password.'
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to reset password',
+                'error' => $e->getMessage()
             ], 500);
         }
     }
