@@ -30,6 +30,7 @@ use App\Http\Controllers\RegistrationReportController;
 | AUTH (PUBLIC)
 |--------------------------------------------------------------------------
 */
+
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register/save', [RegistrationController::class, 'store']); // student self-register
 
@@ -108,10 +109,11 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 
     // Reports (filters => POST is better)
     Route::prefix('reports')->group(function () {
-        Route::post('/registrations', [RegistrationReportController::class, 'generate']);
-        Route::post('/registrations/pdf', [RegistrationReportController::class, 'exportPdf']);
+        Route::match(['GET', 'POST'], '/registrations', [RegistrationReportController::class, 'generate']);
+        Route::match(['GET', 'POST'], '/registrations/pdf', [RegistrationReportController::class, 'exportPdf']);
         Route::get('/registrations/summary', [RegistrationReportController::class, 'summary']);
     });
+
 
     // Students (Admin/Staff can CRUD)
     Route::get('/students', [StudentController::class, 'index']);
