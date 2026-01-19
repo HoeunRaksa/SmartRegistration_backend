@@ -1,11 +1,11 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Illuminate\Http\Request;
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\DepartmentController;
+use App\Http\Controllers\Api\UserSettingsController;
 
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\RegistrationController;
@@ -14,8 +14,8 @@ use App\Http\Controllers\MajorSubjectController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\StudentController;
-use App\Http\Controllers\Api\UserSettingsController;
 use App\Http\Controllers\RegistrationReportController;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -27,16 +27,15 @@ use App\Http\Controllers\RegistrationReportController;
 
 /*
 |--------------------------------------------------------------------------
-| AUTHENTICATION (PUBLIC)
+| AUTH (PUBLIC)
 |--------------------------------------------------------------------------
 */
 Route::post('/login', [AuthController::class, 'login']);
-Route::post('/register/save', [RegistrationController::class, 'store']); // ✅ STUDENT SELF-REGISTER
-Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
+Route::post('/register/save', [RegistrationController::class, 'store']); // student self-register
 
 /*
 |--------------------------------------------------------------------------
-| PUBLIC DATA (NO LOGIN REQUIRED)
+| PUBLIC READ DATA (NO LOGIN REQUIRED)
 |--------------------------------------------------------------------------
 */
 Route::get('/departments', [DepartmentController::class, 'index']);
@@ -50,31 +49,25 @@ Route::get('/subjects/{id}', [SubjectController::class, 'show']);
 
 /*
 |--------------------------------------------------------------------------
-| PAYMENT (PUBLIC + AUTHENTICATED)
+| PAYMENT (PUBLIC)
 |--------------------------------------------------------------------------
 */
 Route::prefix('payment')->group(function () {
-
-    // ✅ PUBLIC – NO AUTH – NO TOKEN – NO ROLE
     Route::post('/generate-qr', [PaymentController::class, 'generateQr']);
-
     Route::get('/check-status/{tranId}', [PaymentController::class, 'checkPaymentStatus']);
-
-    // ✅ PUBLIC WEBHOOK
-    Route::post('/callback', [PaymentController::class, 'paymentCallback']);
+    Route::post('/callback', [PaymentController::class, 'paymentCallback']); // ABA webhook
 });
-
-
 
 /*
 |--------------------------------------------------------------------------
-| STUDENT ROUTES (LOGIN REQUIRED)
+| AUTHENTICATED USER ROUTES (ANY LOGGED-IN USER)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum'])->group(function () {
-   // Authentication
+
+    // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
-    
+
     // User Profile & Settings
     Route::get('/user/profile', [UserSettingsController::class, 'profile']);
     Route::put('/user/update-name', [UserSettingsController::class, 'updateName']);
@@ -84,8 +77,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('/user/delete-profile-picture', [UserSettingsController::class, 'deleteProfilePicture']);
     Route::post('/user/delete-account', [UserSettingsController::class, 'deleteAccount']);
 
-    Route::apiResource('students', StudentController::class);
-    Route::post('/students/{id}/reset-password', [StudentController::class, 'resetPassword']);
+    // Student can view own record only (optional: keep if your frontend needs it)
+    Route::get('/students/{id}', [StudentController::class, 'show']);
 });
 
 /*
@@ -102,53 +95,49 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| STAFF + ADMIN ROUTES
+| STAFF + ADMIN ROUTES (FULL MANAGEMENT)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
+
     // Registrations
-    Route::get('/registers', [RegistrationController::class, 'index']); 
-    Route::get('/registers/{id}', [RegistrationController::class, 'show']); 
+    Route::get('/registers', [RegistrationController::class, 'index']);
+    Route::get('/registers/{id}', [RegistrationController::class, 'show']);
     Route::put('/registers/{id}', [RegistrationController::class, 'update']);
     Route::delete('/registers/{id}', [RegistrationController::class, 'destroy']);
 
+    // Reports (filters => POST is better)
     Route::prefix('reports')->group(function () {
-    // Get registration report data (with filters)
-    Route::get('/registrations', [RegistrationReportController::class, 'generate']);
-    
-    // Export registration report to PDF
-    Route::get('/registrations/pdf', [RegistrationReportController::class, 'exportPdf']);
-    
-    // Get summary statistics
-    Route::get('/registrations/summary', [RegistrationReportController::class, 'summary']);
-});
-    
-    // Students
+        Route::post('/registrations', [RegistrationReportController::class, 'generate']);
+        Route::post('/registrations/pdf', [RegistrationReportController::class, 'exportPdf']);
+        Route::get('/registrations/summary', [RegistrationReportController::class, 'summary']);
+    });
+
+    // Students (Admin/Staff can CRUD)
     Route::get('/students', [StudentController::class, 'index']);
-    Route::get('/students/{id}', [StudentController::class, 'show']);
     Route::post('/students', [StudentController::class, 'store']);
     Route::put('/students/{id}', [StudentController::class, 'update']);
     Route::patch('/students/{id}', [StudentController::class, 'update']);
     Route::delete('/students/{id}', [StudentController::class, 'destroy']);
+    Route::post('/students/{id}/reset-password', [StudentController::class, 'resetPassword']);
 
-    // Departments
+    // Departments (Write)
     Route::post('/departments', [DepartmentController::class, 'store']);
     Route::put('/departments/{department}', [DepartmentController::class, 'update']);
     Route::patch('/departments/{department}', [DepartmentController::class, 'update']);
     Route::delete('/departments/{department}', [DepartmentController::class, 'destroy']);
 
+    // Extra department endpoints
     Route::get('departments/faculties', [DepartmentController::class, 'getFaculties']);
     Route::get('departments/statistics', [DepartmentController::class, 'getStatistics']);
-    Route::apiResource('departments', DepartmentController::class);
-    Route::get('departments/{department_id}/majors', [DepartmentController::class, 'majors']);
 
-    // Majors (WRITE ONLY)
+    // Majors (Write)
     Route::post('/majors', [MajorController::class, 'store']);
     Route::put('/majors/{major}', [MajorController::class, 'update']);
     Route::patch('/majors/{major}', [MajorController::class, 'update']);
     Route::delete('/majors/{major}', [MajorController::class, 'destroy']);
 
-    // Subjects (WRITE ONLY)
+    // Subjects (Write)
     Route::post('/subjects', [SubjectController::class, 'store']);
     Route::put('/subjects/{id}', [SubjectController::class, 'update']);
     Route::patch('/subjects/{id}', [SubjectController::class, 'update']);
@@ -178,7 +167,7 @@ Route::get('/test-registrations', function () {
             ->limit(3)
             ->get(),
     ];
-    
+
     return response()->json([
         'success' => true,
         'message' => 'Test endpoint',
