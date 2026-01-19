@@ -107,6 +107,8 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::get('/registers/{id}', [RegistrationController::class, 'show']);
     Route::put('/registers/{id}', [RegistrationController::class, 'update']);
     Route::delete('/registers/{id}', [RegistrationController::class, 'destroy']);
+    
+    Route::post('/payment/generate-qr', [PaymentController::class, 'generateQr']); 
      Route::post('/admin/registrations/{id}/mark-paid', [RegistrationController::class, 'markPaidCash']);
 
     // Reports (filters => POST is better)
