@@ -10,45 +10,66 @@ class MajorSubjectController extends Controller
     // GET: /api/major-subjects
     public function index()
     {
-        return response()->json(
-            MajorSubject::with(['major', 'subject'])->get()
-        );
+        $data = MajorSubject::with(['major', 'subject'])
+            ->latest('id')
+            ->get();
+
+        return response()->json([
+            'data' => $data
+        ], 200);
     }
 
     // POST: /api/major-subjects
     public function store(Request $request)
     {
-        $request->validate([
-            'major_id'   => 'required|exists:majors,id',
-            'subject_id' => 'required|exists:subjects,id',
+        $validated = $request->validate([
+            'major_id'   => 'required|integer|exists:majors,id',
+            'subject_id' => 'required|integer|exists:subjects,id',
         ]);
 
-        $majorSubject = MajorSubject::firstOrCreate([
-            'major_id' => $request->major_id,
-            'subject_id' => $request->subject_id,
-        ]);
+        // Prevent duplicates (same behavior you already want)
+        $majorSubject = MajorSubject::firstOrCreate(
+            [
+                'major_id'   => $validated['major_id'],
+                'subject_id' => $validated['subject_id'],
+            ]
+        );
 
+        // ✅ firstOrCreate might return existing row -> return 200
+        // ✅ if newly created -> return 201
+        $status = $majorSubject->wasRecentlyCreated ? 201 : 200;
 
-        return response()->json($majorSubject, 201);
+        return response()->json([
+            'message' => $majorSubject->wasRecentlyCreated
+                ? 'Major subject created'
+                : 'Major subject already exists',
+            'data' => $majorSubject->load(['major', 'subject'])
+        ], $status);
     }
 
     // GET: /api/major-subjects/{id}
     public function show($id)
     {
-        return response()->json(
-            MajorSubject::with([
+        $data = MajorSubject::with([
                 'major',
                 'subject',
                 'courses.teacher'
-            ])->findOrFail($id)
-        );
+            ])
+            ->findOrFail($id);
+
+        return response()->json([
+            'data' => $data
+        ], 200);
     }
 
-    // DELETE
+    // DELETE: /api/major-subjects/{id}
     public function destroy($id)
     {
-        MajorSubject::findOrFail($id)->delete();
+        $row = MajorSubject::findOrFail($id);
+        $row->delete();
 
-        return response()->json(['message' => 'Major subject removed']);
+        return response()->json([
+            'message' => 'Major subject removed'
+        ], 200);
     }
 }
