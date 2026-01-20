@@ -95,7 +95,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/user/delete-account', [UserSettingsController::class, 'deleteAccount']);
     // Student can view own record only (optional: keep if your frontend needs it)
     Route::get('/students/{id}', [StudentController::class, 'show']);
-    Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
 
 });
 
@@ -159,6 +158,8 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::post('/schedules', [AdminScheduleController::class, 'store']);
         Route::put('/schedules/{id}', [AdminScheduleController::class, 'update']);
         Route::delete('/schedules/{id}', [AdminScheduleController::class, 'destroy']);
+
+        Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
     });
 
     // Registrations
