@@ -21,6 +21,8 @@ use App\Http\Controllers\Api\StudentGradeController;
 use App\Http\Controllers\Api\StudentAssignmentController;
 use App\Http\Controllers\Api\StudentAttendanceController;
 use App\Http\Controllers\Api\StudentMessageController;
+use App\Http\Controllers\Api\StudentCalendarController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -71,6 +73,8 @@ Route::prefix('payment')->group(function () {
 | AUTHENTICATED USER ROUTES (ANY LOGGED-IN USER)
 |--------------------------------------------------------------------------
 */
+Route::get('/calendar', [StudentCalendarController::class, 'index']);
+
 Route::middleware(['auth:sanctum'])->group(function () {
 
     // Auth
@@ -113,9 +117,9 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::get('/registers/{id}', [RegistrationController::class, 'show']);
     Route::put('/registers/{id}', [RegistrationController::class, 'update']);
     Route::delete('/registers/{id}', [RegistrationController::class, 'destroy']);
-    
-    Route::post('/payment/generate-qr', [PaymentController::class, 'generateQr']); 
-     Route::post('/admin/registrations/{id}/mark-paid', [RegistrationController::class, 'markPaidCash']);
+
+    Route::post('/payment/generate-qr', [PaymentController::class, 'generateQr']);
+    Route::post('/admin/registrations/{id}/mark-paid', [RegistrationController::class, 'markPaidCash']);
 
     // Reports (filters => POST is better)
     Route::prefix('reports')->group(function () {
@@ -211,7 +215,14 @@ Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(fu
     Route::delete('/assignments/{assignmentId}/submissions/{submissionId}', [StudentAssignmentController::class, 'deleteSubmission']);
 
     Route::get('/submissions', [StudentAssignmentController::class, 'getMySubmissions']);
+    // Schedule
+    Route::get('/schedule', [StudentScheduleController::class, 'getSchedule']);
+    Route::get('/schedule/today', [StudentScheduleController::class, 'getTodaySchedule']);
 
+    // ✅ add these
+    Route::get('/schedule/week', [StudentScheduleController::class, 'getWeekSchedule']);
+    Route::get('/schedule/upcoming', [StudentScheduleController::class, 'getUpcoming']);
+    Route::get('/schedule/download', [StudentScheduleController::class, 'downloadSchedule']);
 });
 
 /*
