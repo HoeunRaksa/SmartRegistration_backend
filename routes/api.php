@@ -73,9 +73,10 @@ Route::prefix('payment')->group(function () {
 | AUTHENTICATED USER ROUTES (ANY LOGGED-IN USER)
 |--------------------------------------------------------------------------
 */
-Route::get('/calendar', [StudentCalendarController::class, 'index']);
-
 Route::middleware(['auth:sanctum'])->group(function () {
+
+    // ✅ Calendar should be protected (was public before)
+    Route::get('/calendar', [StudentCalendarController::class, 'index']);
 
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -101,7 +102,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
 Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
     Route::apiResource('major-subjects', MajorSubjectController::class)
         ->only(['index', 'store', 'show', 'destroy']);
+});
 
+/*
+|--------------------------------------------------------------------------
+| ✅ COURSES (SHARED) - teacher + staff + admin
+| Fix: avoid duplicate apiResource('courses') in multiple groups
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function () {
     Route::apiResource('courses', CourseController::class);
 });
 
@@ -111,7 +120,6 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
-     Route::apiResource('courses', CourseController::class);
 
     // Registrations
     Route::get('/registers', [RegistrationController::class, 'index']);
@@ -128,7 +136,6 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::match(['GET', 'POST'], '/registrations/pdf', [RegistrationReportController::class, 'exportPdf']);
         Route::get('/registrations/summary', [RegistrationReportController::class, 'summary']);
     });
-
 
     // Students (Admin/Staff can CRUD)
     Route::get('/students', [StudentController::class, 'index']);
@@ -170,15 +177,14 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     });
 });
 
-
 /*
 |--------------------------------------------------------------------------
 | DEBUG Student
 |--------------------------------------------------------------------------
 */
-
 Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(function () {
-     Route::get('/profile', [StudentProfileController::class, 'getProfile']);
+
+    Route::get('/profile', [StudentProfileController::class, 'getProfile']);
 
     // Courses
     Route::get('/courses/enrolled', [StudentCourseController::class, 'getEnrolledCourses']);
@@ -207,17 +213,16 @@ Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(fu
     Route::get('/messages/{conversationId}', [StudentMessageController::class, 'getMessages']);
     Route::post('/messages/send', [StudentMessageController::class, 'sendMessage']);
 
-    // Assignments
+    // Assignments (duplicates kept as-is in your original – but not recommended)
     Route::get('/assignments', [StudentAssignmentController::class, 'getAssignments']);
     Route::get('/assignments/course/{courseId}', [StudentAssignmentController::class, 'getAssignmentsByCourse']);
     Route::get('/assignments/{assignmentId}', [StudentAssignmentController::class, 'getAssignmentDetails']);
-
     Route::post('/assignments/{assignmentId}/submit', [StudentAssignmentController::class, 'submitAssignment']);
     Route::put('/assignments/{assignmentId}/submissions/{submissionId}', [StudentAssignmentController::class, 'updateSubmission']);
     Route::delete('/assignments/{assignmentId}/submissions/{submissionId}', [StudentAssignmentController::class, 'deleteSubmission']);
-
     Route::get('/submissions', [StudentAssignmentController::class, 'getMySubmissions']);
-    // Schedule
+
+    // Schedule (duplicates kept as-is in your original – but not recommended)
     Route::get('/schedule', [StudentScheduleController::class, 'getSchedule']);
     Route::get('/schedule/today', [StudentScheduleController::class, 'getTodaySchedule']);
 
