@@ -93,9 +93,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/user/upload-profile-picture', [UserSettingsController::class, 'uploadProfilePicture']);
     Route::delete('/user/delete-profile-picture', [UserSettingsController::class, 'deleteProfilePicture']);
     Route::post('/user/delete-account', [UserSettingsController::class, 'deleteAccount']);
-
     // Student can view own record only (optional: keep if your frontend needs it)
     Route::get('/students/{id}', [StudentController::class, 'show']);
+    Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
+
 });
 
 /*
