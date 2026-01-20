@@ -39,3 +39,6 @@ class MajorSubject extends Model
         return $this->hasMany(Course::class);
     }
 }
+
+
+

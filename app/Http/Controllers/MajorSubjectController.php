@@ -71,7 +71,8 @@ class MajorSubjectController extends Controller
             'subject_ids.*'=> 'integer|exists:subjects,id',
 
             'year_level'   => 'nullable|integer|min:1|max:10',
-            'semester'     => 'nullable|string|max:20',
+           'semester' => 'nullable|integer|min:1|max:3',
+
             'is_required'  => 'nullable|boolean',
         ]);
 
