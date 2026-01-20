@@ -111,6 +111,7 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
+     Route::apiResource('courses', CourseController::class);
 
     // Registrations
     Route::get('/registers', [RegistrationController::class, 'index']);
