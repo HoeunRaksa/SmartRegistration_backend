@@ -9,13 +9,24 @@ class SubjectController extends Controller
 {
     /**
      * GET /api/subjects
+     * Optional filter: ?department_id=1
      */
-    public function index()
+    public function index(Request $request)
     {
+        $query = Subject::query();
+
+        // ✅ optional department filter
+        if ($request->filled('department_id')) {
+            $query->where('department_id', $request->department_id);
+        }
+
+        // ✅ return department_id in response (it will be included automatically)
+        $subjects = $query->latest('id')->get();
+
         return response()->json([
             'success' => true,
-            'data' => Subject::all()
-        ]);
+            'data' => $subjects
+        ], 200);
     }
 
     /**
@@ -24,9 +35,10 @@ class SubjectController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'subject_name' => 'required|string|max:255',
-            'description'  => 'nullable|string',
-            'credit'       => 'required|integer|min:1',
+            'department_id' => 'required|integer|exists:departments,id',
+            'subject_name'  => 'required|string|max:255',
+            'description'   => 'nullable|string',
+            'credit'        => 'required|integer|min:1',
         ]);
 
         $subject = Subject::create($validated);
@@ -43,12 +55,13 @@ class SubjectController extends Controller
      */
     public function show($id)
     {
-        $subject = Subject::with('majorSubjects')->findOrFail($id);
+        // ✅ include majorSubjects (and optional department relation if you have it)
+        $subject = Subject::with(['majorSubjects', 'department'])->findOrFail($id);
 
         return response()->json([
             'success' => true,
             'data' => $subject
-        ]);
+        ], 200);
     }
 
     /**
@@ -59,9 +72,10 @@ class SubjectController extends Controller
         $subject = Subject::findOrFail($id);
 
         $validated = $request->validate([
-            'subject_name' => 'required|string|max:255',
-            'description'  => 'nullable|string',
-            'credit'       => 'required|integer|min:1',
+            'department_id' => 'required|integer|exists:departments,id',
+            'subject_name'  => 'required|string|max:255',
+            'description'   => 'nullable|string',
+            'credit'        => 'required|integer|min:1',
         ]);
 
         $subject->update($validated);
@@ -70,7 +84,7 @@ class SubjectController extends Controller
             'success' => true,
             'message' => 'Subject updated successfully',
             'data' => $subject
-        ]);
+        ], 200);
     }
 
     /**
@@ -78,11 +92,21 @@ class SubjectController extends Controller
      */
     public function destroy($id)
     {
-        Subject::findOrFail($id)->delete();
+        $subject = Subject::findOrFail($id);
+
+        // ✅ optional: prevent delete if used in major_subjects
+        // if ($subject->majorSubjects()->exists()) {
+        //     return response()->json([
+        //         'success' => false,
+        //         'message' => 'Cannot delete subject because it is used by majors.'
+        //     ], 409);
+        // }
+
+        $subject->delete();
 
         return response()->json([
             'success' => true,
             'message' => 'Subject deleted successfully'
-        ]);
+        ], 200);
     }
 }
