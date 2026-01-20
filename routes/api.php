@@ -99,7 +99,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Student can view own record only (optional)
     Route::get('/students/{id}', [StudentController::class, 'show']);
-
     Route::get('/teachers', [TeacherController::class, 'index']);
     Route::get('/teachers/{id}', [TeacherController::class, 'show']);
     Route::post('/teachers', [TeacherController::class, 'store']);
@@ -230,6 +229,9 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::patch('/{id}', [StaffController::class, 'update']);
         Route::delete('/{id}', [StaffController::class, 'destroy']);
     });
+
+    Route::post('/teachers/{id}/reset-password', [TeacherController::class, 'resetPassword']);
+
 });
 
 /*

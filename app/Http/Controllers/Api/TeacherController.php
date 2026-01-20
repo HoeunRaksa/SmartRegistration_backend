@@ -8,6 +8,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rules\Password;
 
 class TeacherController extends Controller
 {
@@ -19,8 +21,11 @@ class TeacherController extends Controller
         $search  = $request->query('search');
         $perPage = (int) $request->query('per_page', 10);
 
-        $query = Teacher::with(['user:id,name,email,role,profile_picture_path', 'department:id,name'])
-            ->latest();
+        $query = Teacher::with([
+                'user:id,name,email,role,profile_picture_path',
+                'department:id,name'
+            ])
+            ->latest('id');
 
         if ($search) {
             $query->where(function ($q) use ($search) {
@@ -37,7 +42,19 @@ class TeacherController extends Controller
             });
         }
 
-        return response()->json($query->paginate($perPage));
+        $result = $query->paginate($perPage);
+
+        // add profile_picture_url for each row (convenience)
+        $result->getCollection()->transform(function ($t) {
+            if ($t->user) {
+                $t->user->profile_picture_url = $t->user->profile_picture_path
+                    ? asset($t->user->profile_picture_path)
+                    : null;
+            }
+            return $t;
+        });
+
+        return response()->json($result);
     }
 
     /**
@@ -47,23 +64,18 @@ class TeacherController extends Controller
     {
         $teacher = Teacher::with(['user', 'department'])->findOrFail($id);
 
-        // add full url for image (optional convenience)
-        $teacher->user->profile_picture_url = $teacher->user->profile_picture_path
-            ? asset($teacher->user->profile_picture_path)
-            : null;
+        if ($teacher->user) {
+            $teacher->user->profile_picture_url = $teacher->user->profile_picture_path
+                ? asset($teacher->user->profile_picture_path)
+                : null;
+        }
 
         return response()->json($teacher);
     }
 
     /**
      * POST /api/teachers
-     * Content-Type: multipart/form-data
-     * Fields:
-     * - department_id, full_name, full_name_kh, gender, date_of_birth, address, phone_number
-     * - name, email, password (for user)
-     * - image (optional)
-     *
-     * Upload folder: public/uploads/teachers (or /profiles)
+     * multipart/form-data
      */
     public function store(Request $request)
     {
@@ -84,53 +96,65 @@ class TeacherController extends Controller
 
             // image
             'image'          => ['nullable', 'image', 'max:2048'],
-            'upload_to'      => ['nullable', 'in:teachers,profiles'], // optional: choose folder
         ]);
 
-        // choose folder
-        $folder = ($request->input('upload_to') === 'profiles')
-            ? 'uploads/profiles'
-            : 'uploads/teachers';
+        DB::beginTransaction();
+        try {
+            // create user first
+            $user = User::create([
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'password' => Hash::make($data['password']),
+                'role' => 'teacher',
+                'profile_picture_path' => null,
+            ]);
 
-        // create user first
-        $user = User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => Hash::make($data['password']),
-            'role' => 'teacher',
-            'profile_picture_path' => null,
-        ]);
+            // upload image into public/uploads/teachers (same style)
+            if ($request->hasFile('image')) {
+                $path = $this->uploadTeacherImage($request->file('image'));
+                $user->update(['profile_picture_path' => $path]);
+            }
 
-        // upload image into public/
-        if ($request->hasFile('image')) {
-            $path = $this->uploadPublicImage($request->file('image'), $folder);
-            $user->update(['profile_picture_path' => $path]);
+            // create teacher
+            $teacher = Teacher::create([
+                'user_id' => $user->id,
+                'department_id' => $data['department_id'],
+                'full_name' => $data['full_name'],
+                'full_name_kh' => $data['full_name_kh'] ?? null,
+                'gender' => $data['gender'] ?? null,
+                'date_of_birth' => $data['date_of_birth'] ?? null,
+                'address' => $data['address'] ?? null,
+                'phone_number' => $data['phone_number'] ?? null,
+            ]);
+
+            DB::commit();
+
+            $teacher = Teacher::with(['user', 'department'])->find($teacher->id);
+            if ($teacher && $teacher->user) {
+                $teacher->user->profile_picture_url = $teacher->user->profile_picture_path
+                    ? asset($teacher->user->profile_picture_path)
+                    : null;
+            }
+
+            return response()->json([
+                'message' => 'Teacher created successfully',
+                'data' => $teacher,
+            ], 201);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to create teacher',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        // create teacher
-        $teacher = Teacher::create([
-            'user_id' => $user->id,
-            'department_id' => $data['department_id'],
-            'full_name' => $data['full_name'],
-            'full_name_kh' => $data['full_name_kh'] ?? null,
-            'gender' => $data['gender'] ?? null,
-            'date_of_birth' => $data['date_of_birth'] ?? null,
-            'address' => $data['address'] ?? null,
-            'phone_number' => $data['phone_number'] ?? null,
-        ]);
-
-        return response()->json([
-            'message' => 'Teacher created successfully',
-            'data' => Teacher::with(['user', 'department'])->find($teacher->id),
-        ], 201);
     }
 
     /**
      * POST /api/teachers/{id}
-     * multipart/form-data
-     * - update teacher fields
-     * - update user fields (name, email, password optional)
-     * - image optional
+     * multipart/form-data (FormData friendly)
+     *
+     * ✅ password is OPTIONAL here (admin can update info without password)
+     * ✅ image optional (replace + delete old)
      */
     public function update(Request $request, $id)
     {
@@ -149,99 +173,171 @@ class TeacherController extends Controller
 
             // user
             'name'           => ['required', 'string', 'max:255'],
-            'email'          => ['required', 'email', 'max:255', 'unique:users,email,' . $user->id],
+            'email'          => ['required', 'email', 'max:255', 'unique:users,email,' . ($user?->id ?? 'NULL')],
+
+            // ✅ OPTIONAL: allow password change here if you want
             'password'       => ['nullable', 'string', 'min:6'],
 
             // image
             'image'          => ['nullable', 'image', 'max:2048'],
-            'upload_to'      => ['nullable', 'in:teachers,profiles'],
         ]);
 
-        // choose folder
-        $folder = ($request->input('upload_to') === 'profiles')
-            ? 'uploads/profiles'
-            : 'uploads/teachers';
+        DB::beginTransaction();
+        try {
+            // update user fields
+            if ($user) {
+                $userUpdate = [
+                    'name' => $data['name'],
+                    'email' => $data['email'],
+                ];
 
-        // update user
-        $userUpdate = [
-            'name' => $data['name'],
-            'email' => $data['email'],
-        ];
-        if (!empty($data['password'])) {
-            $userUpdate['password'] = Hash::make($data['password']);
+                if (!empty($data['password'])) {
+                    $userUpdate['password'] = Hash::make($data['password']);
+                    // revoke tokens (force re-login) if you want
+                    $user->tokens()->delete();
+                }
+
+                // upload new image (delete old)
+                if ($request->hasFile('image')) {
+                    $this->deletePublicFileIfExists($user->profile_picture_path);
+                    $path = $this->uploadTeacherImage($request->file('image'));
+                    $userUpdate['profile_picture_path'] = $path;
+                }
+
+                $user->update($userUpdate);
+            }
+
+            // update teacher fields
+            $teacher->update([
+                'department_id' => $data['department_id'],
+                'full_name' => $data['full_name'],
+                'full_name_kh' => $data['full_name_kh'] ?? null,
+                'gender' => $data['gender'] ?? null,
+                'date_of_birth' => $data['date_of_birth'] ?? null,
+                'address' => $data['address'] ?? null,
+                'phone_number' => $data['phone_number'] ?? null,
+            ]);
+
+            DB::commit();
+
+            $teacher = Teacher::with(['user', 'department'])->find($teacher->id);
+            if ($teacher && $teacher->user) {
+                $teacher->user->profile_picture_url = $teacher->user->profile_picture_path
+                    ? asset($teacher->user->profile_picture_path)
+                    : null;
+            }
+
+            return response()->json([
+                'message' => 'Teacher updated successfully',
+                'data' => $teacher,
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to update teacher',
+                'error' => $e->getMessage(),
+            ], 500);
         }
+    }
 
-        // upload new image (delete old)
-        if ($request->hasFile('image')) {
-            $this->deletePublicFileIfExists($user->profile_picture_path);
-            $path = $this->uploadPublicImage($request->file('image'), $folder);
-            $userUpdate['profile_picture_path'] = $path;
+    /**
+     * POST /api/teachers/{id}/reset-password
+     * Like Student resetPassword style
+     */
+    public function resetPassword(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'new_password' => ['required', 'confirmed', Password::min(8)],
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $teacher = Teacher::with('user')->findOrFail($id);
+
+            if (!$teacher->user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Teacher has no associated user account'
+                ], 404);
+            }
+
+            $user = $teacher->user;
+            $user->password = Hash::make($validated['new_password']);
+            $user->save();
+
+            // revoke tokens to force re-login
+            $user->tokens()->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Password reset successfully. Teacher must login with new password.'
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to reset password',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $user->update($userUpdate);
-
-        // update teacher
-        $teacher->update([
-            'department_id' => $data['department_id'],
-            'full_name' => $data['full_name'],
-            'full_name_kh' => $data['full_name_kh'] ?? null,
-            'gender' => $data['gender'] ?? null,
-            'date_of_birth' => $data['date_of_birth'] ?? null,
-            'address' => $data['address'] ?? null,
-            'phone_number' => $data['phone_number'] ?? null,
-        ]);
-
-        return response()->json([
-            'message' => 'Teacher updated successfully',
-            'data' => Teacher::with(['user', 'department'])->find($teacher->id),
-        ]);
     }
 
     /**
      * DELETE /api/teachers/{id}
-     * Deletes teacher, deletes image file, and (optionally) deletes linked user.
      */
     public function destroy($id)
     {
         $teacher = Teacher::with('user')->findOrFail($id);
 
-        // delete image file
-        if ($teacher->user) {
-            $this->deletePublicFileIfExists($teacher->user->profile_picture_path);
+        DB::beginTransaction();
+        try {
+            if ($teacher->user) {
+                $this->deletePublicFileIfExists($teacher->user->profile_picture_path);
+            }
+
+            $user = $teacher->user;
+
+            $teacher->delete();
+
+            if ($user) {
+                $user->tokens()->delete();
+                $user->delete();
+            }
+
+            DB::commit();
+
+            return response()->json(['message' => 'Teacher deleted successfully']);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to delete teacher',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        // delete teacher first
-        $teacher->delete();
-
-        // delete user also (recommended)
-        if ($teacher->user) {
-            $teacher->user->delete();
-        }
-
-        return response()->json(['message' => 'Teacher deleted successfully']);
     }
 
     // ---------------- Helpers ----------------
 
     /**
-     * Upload image into public/{folder} and return relative path like "uploads/teachers/abc.jpg"
+     * ✅ EXACT STYLE you requested:
+     * $uploadPath = public_path('uploads/teachers')
+     * Save DB path: uploads/teachers/xxx.jpg
      */
-    private function uploadPublicImage($file, string $folder): string
+    private function uploadTeacherImage($file): string
     {
-        $publicPath = public_path($folder);
-        if (!File::exists($publicPath)) {
-            File::makeDirectory($publicPath, 0755, true);
+        $uploadPath = public_path('uploads/teachers');
+        if (!File::exists($uploadPath)) {
+            File::makeDirectory($uploadPath, 0755, true);
         }
 
         $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
-        $file->move($publicPath, $filename);
+        $file->move($uploadPath, $filename);
 
-        return $folder . '/' . $filename; // relative path saved in DB
+        return 'uploads/teachers/' . $filename;
     }
 
-    /**
-     * Delete file in public/ if exists. Accepts path like "uploads/teachers/abc.jpg"
-     */
     private function deletePublicFileIfExists(?string $relativePath): void
     {
         if (!$relativePath) return;
