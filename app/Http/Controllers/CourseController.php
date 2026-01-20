@@ -20,26 +20,20 @@ class CourseController extends Controller
     }
 
     // POST: /api/courses
-    public function store(Request $request)
-    {
-        $validated = $request->validate([
-            'major_subject_id' => 'required|integer|exists:major_subjects,id',
-            'teacher_id'       => 'required|integer|exists:teachers,id',
-            'semester'         => 'required|integer|min:1|max:3',
-            'academic_year'    => 'required|integer|min:2000|max:2100',
-        ]);
+public function store(Request $request)
+{
+    $validated = $request->validate([
+        'major_subject_id' => 'required|exists:major_subjects,id',
+        'teacher_id'       => 'required|exists:teachers,id',
+        'semester'         => 'required|integer|min:1|max:3',
+        'academic_year'    => 'required|string|regex:/^\d{4}-\d{4}$/',
+    ]);
 
-        $course = Course::create($validated);
+    $course = Course::create($validated);
 
-        return response()->json([
-            'message' => 'Course created',
-            'data' => $course->load([
-                'majorSubject.major',
-                'majorSubject.subject',
-                'teacher',
-            ]),
-        ], 201);
-    }
+    return response()->json($course, 201);
+}
+
 
     // GET: /api/courses/{id}
     public function show($id)
@@ -54,28 +48,21 @@ class CourseController extends Controller
     }
 
     // PUT: /api/courses/{id}
-    public function update(Request $request, $id)
-    {
-        $course = Course::findOrFail($id);
+public function update(Request $request, $id)
+{
+    $course = Course::findOrFail($id);
 
-        $validated = $request->validate([
-            'major_subject_id' => 'required|integer|exists:major_subjects,id',
-            'teacher_id'       => 'required|integer|exists:teachers,id',
-            'semester'         => 'required|integer|min:1|max:3',
-            'academic_year'    => 'required|integer|min:2000|max:2100',
-        ]);
+    $validated = $request->validate([
+        'teacher_id'    => 'required|exists:teachers,id',
+        'semester'      => 'required|integer|min:1|max:3',
+        'academic_year' => 'required|string|regex:/^\d{4}-\d{4}$/',
+    ]);
 
-        $course->update($validated);
+    $course->update($validated);
 
-        return response()->json([
-            'message' => 'Course updated',
-            'data' => $course->load([
-                'majorSubject.major',
-                'majorSubject.subject',
-                'teacher',
-            ]),
-        ], 200);
-    }
+    return response()->json($course);
+}
+
 
     // DELETE: /api/courses/{id}
     public function destroy($id)
