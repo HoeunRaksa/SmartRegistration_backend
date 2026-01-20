@@ -269,6 +269,16 @@ Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(fu
     Route::get('/schedule/upcoming', [StudentScheduleController::class, 'getUpcoming']);
     Route::get('/schedule/download', [StudentScheduleController::class, 'downloadSchedule']);
 });
+/*
+|--------------------------------------------------------------------------
+| ALL ROLE MAJOR SUBJECTS ROUTES
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function () {
+    Route::apiResource('major-subjects', MajorSubjectController::class)
+        ->only(['index', 'store', 'show', 'destroy']);
+});
 
 /*
 |--------------------------------------------------------------------------
