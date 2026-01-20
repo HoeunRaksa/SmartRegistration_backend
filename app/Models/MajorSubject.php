@@ -10,7 +10,6 @@ class MajorSubject extends Model
     use HasFactory;
 
     protected $table = 'major_subjects';
-    protected $primaryKey = 'id';
 
     protected $fillable = [
         'major_id',
@@ -21,8 +20,8 @@ class MajorSubject extends Model
     ];
 
     protected $casts = [
-        'is_required' => 'boolean',
         'year_level' => 'integer',
+        'is_required' => 'boolean',
     ];
 
     public function major()
