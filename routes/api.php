@@ -114,11 +114,8 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function () {
-     // ✅ bulk route (match frontend /major-subjects/bulk)
-    Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
-
-    // ✅ normal routes
-    Route::apiResource('major-subjects', MajorSubjectController::class)
+    Route::apiResource('courses', CourseController::class);
+       Route::apiResource('major-subjects', MajorSubjectController::class)
         ->only(['index', 'store', 'show', 'destroy']);
 });
 
@@ -162,6 +159,7 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::put('/schedules/{id}', [AdminScheduleController::class, 'update']);
         Route::delete('/schedules/{id}', [AdminScheduleController::class, 'destroy']);
 
+        Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
     });
 
     // Registrations
@@ -274,7 +272,20 @@ Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(fu
     Route::get('/schedule/upcoming', [StudentScheduleController::class, 'getUpcoming']);
     Route::get('/schedule/download', [StudentScheduleController::class, 'downloadSchedule']);
 });
+/*
+|--------------------------------------------------------------------------
+| ALL ROLE MAJOR SUBJECTS ROUTES
+|--------------------------------------------------------------------------
+*/
 
+Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function () {
+     // ✅ bulk route (match frontend /major-subjects/bulk)
+    Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
+
+    // ✅ normal routes
+    Route::apiResource('major-subjects', MajorSubjectController::class)
+        ->only(['index', 'store', 'show', 'destroy']);
+});
 
 /*
 |--------------------------------------------------------------------------
