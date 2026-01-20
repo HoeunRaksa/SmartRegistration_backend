@@ -12,15 +12,18 @@ class MajorSubject extends Model
     protected $table = 'major_subjects';
     protected $primaryKey = 'id';
 
-  protected $fillable = [
-    'major_id',
-    'subject_id',
-    'year_level',
-    'semester',
-    'is_required',
-];
+    protected $fillable = [
+        'major_id',
+        'subject_id',
+        'year_level',
+        'semester',
+        'is_required',
+    ];
 
-    // ------------------- Relationships --------------------
+    protected $casts = [
+        'is_required' => 'boolean',
+        'year_level' => 'integer',
+    ];
 
     public function major()
     {
