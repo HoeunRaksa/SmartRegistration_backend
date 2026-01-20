@@ -15,6 +15,7 @@ use App\Http\Controllers\CourseController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\RegistrationReportController;
+
 use App\Http\Controllers\Api\StudentCourseController;
 use App\Http\Controllers\Api\StudentScheduleController;
 use App\Http\Controllers\Api\StudentGradeController;
@@ -23,11 +24,13 @@ use App\Http\Controllers\Api\StudentAttendanceController;
 use App\Http\Controllers\Api\StudentMessageController;
 use App\Http\Controllers\Api\StudentCalendarController;
 use App\Http\Controllers\Api\StudentProfileController;
+
 use App\Http\Controllers\Api\AdminEnrollmentController;
 use App\Http\Controllers\Api\AdminGradeController;
 use App\Http\Controllers\Api\AdminAssignmentController;
 use App\Http\Controllers\Api\AdminAttendanceController;
 use App\Http\Controllers\Api\AdminScheduleController;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -42,7 +45,6 @@ use App\Http\Controllers\Api\AdminScheduleController;
 | AUTH (PUBLIC)
 |--------------------------------------------------------------------------
 */
-
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register/save', [RegistrationController::class, 'store']); // student self-register
 Route::post('/registrations/{id}/pay-later', [RegistrationController::class, 'payLater']);
@@ -79,7 +81,7 @@ Route::prefix('payment')->group(function () {
 */
 Route::middleware(['auth:sanctum'])->group(function () {
 
-    // ✅ Calendar should be protected (was public before)
+    // Calendar protected
     Route::get('/calendar', [StudentCalendarController::class, 'index']);
 
     // Auth
@@ -93,9 +95,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/user/upload-profile-picture', [UserSettingsController::class, 'uploadProfilePicture']);
     Route::delete('/user/delete-profile-picture', [UserSettingsController::class, 'deleteProfilePicture']);
     Route::post('/user/delete-account', [UserSettingsController::class, 'deleteAccount']);
-    // Student can view own record only (optional: keep if your frontend needs it)
-    Route::get('/students/{id}', [StudentController::class, 'show']);
 
+    // Student can view own record only (optional)
+    Route::get('/students/{id}', [StudentController::class, 'show']);
 });
 
 /*
@@ -104,19 +106,25 @@ Route::middleware(['auth:sanctum'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
- 
+    // add teacher routes later
 });
 
 /*
 |--------------------------------------------------------------------------
-| ✅ COURSES (SHARED) - teacher + staff + admin
-| Fix: avoid duplicate apiResource('courses') in multiple groups
+| COURSES + MAJOR SUBJECTS (teacher + staff + admin)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function () {
+
+    // Courses
     Route::apiResource('courses', CourseController::class);
-       Route::apiResource('major-subjects', MajorSubjectController::class)
+
+    // MajorSubjects normal
+    Route::apiResource('major-subjects', MajorSubjectController::class)
         ->only(['index', 'store', 'show', 'destroy']);
+
+    // ✅ Bulk create MajorSubjects
+    Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
 });
 
 /*
@@ -125,7 +133,8 @@ Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function 
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
-        Route::prefix('admin')->group(function () {
+
+    Route::prefix('admin')->group(function () {
 
         // Enrollments
         Route::get('/enrollments', [AdminEnrollmentController::class, 'index']);
@@ -158,8 +167,6 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::post('/schedules', [AdminScheduleController::class, 'store']);
         Route::put('/schedules/{id}', [AdminScheduleController::class, 'update']);
         Route::delete('/schedules/{id}', [AdminScheduleController::class, 'destroy']);
-
-        Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
     });
 
     // Registrations
@@ -171,14 +178,14 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::post('/payment/generate-qr', [PaymentController::class, 'generateQr']);
     Route::post('/admin/registrations/{id}/mark-paid', [RegistrationController::class, 'markPaidCash']);
 
-    // Reports (filters => POST is better)
+    // Reports
     Route::prefix('reports')->group(function () {
         Route::match(['GET', 'POST'], '/registrations', [RegistrationReportController::class, 'generate']);
         Route::match(['GET', 'POST'], '/registrations/pdf', [RegistrationReportController::class, 'exportPdf']);
         Route::get('/registrations/summary', [RegistrationReportController::class, 'summary']);
     });
 
-    // Students (Admin/Staff can CRUD)
+    // Students CRUD
     Route::get('/students', [StudentController::class, 'index']);
     Route::put('/students/{id}', [StudentController::class, 'update']);
     Route::patch('/students/{id}', [StudentController::class, 'update']);
@@ -220,7 +227,7 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| DEBUG Student
+| STUDENT ROUTES
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(function () {
@@ -236,6 +243,9 @@ Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(fu
     // Schedule
     Route::get('/schedule', [StudentScheduleController::class, 'getSchedule']);
     Route::get('/schedule/today', [StudentScheduleController::class, 'getTodaySchedule']);
+    Route::get('/schedule/week', [StudentScheduleController::class, 'getWeekSchedule']);
+    Route::get('/schedule/upcoming', [StudentScheduleController::class, 'getUpcoming']);
+    Route::get('/schedule/download', [StudentScheduleController::class, 'downloadSchedule']);
 
     // Grades
     Route::get('/grades', [StudentGradeController::class, 'getGrades']);
@@ -253,38 +263,6 @@ Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(fu
     Route::get('/messages/conversations', [StudentMessageController::class, 'getConversations']);
     Route::get('/messages/{conversationId}', [StudentMessageController::class, 'getMessages']);
     Route::post('/messages/send', [StudentMessageController::class, 'sendMessage']);
-
-    // Assignments (duplicates kept as-is in your original – but not recommended)
-    Route::get('/assignments', [StudentAssignmentController::class, 'getAssignments']);
-    Route::get('/assignments/course/{courseId}', [StudentAssignmentController::class, 'getAssignmentsByCourse']);
-    Route::get('/assignments/{assignmentId}', [StudentAssignmentController::class, 'getAssignmentDetails']);
-    Route::post('/assignments/{assignmentId}/submit', [StudentAssignmentController::class, 'submitAssignment']);
-    Route::put('/assignments/{assignmentId}/submissions/{submissionId}', [StudentAssignmentController::class, 'updateSubmission']);
-    Route::delete('/assignments/{assignmentId}/submissions/{submissionId}', [StudentAssignmentController::class, 'deleteSubmission']);
-    Route::get('/submissions', [StudentAssignmentController::class, 'getMySubmissions']);
-
-    // Schedule (duplicates kept as-is in your original – but not recommended)
-    Route::get('/schedule', [StudentScheduleController::class, 'getSchedule']);
-    Route::get('/schedule/today', [StudentScheduleController::class, 'getTodaySchedule']);
-
-    // ✅ add these
-    Route::get('/schedule/week', [StudentScheduleController::class, 'getWeekSchedule']);
-    Route::get('/schedule/upcoming', [StudentScheduleController::class, 'getUpcoming']);
-    Route::get('/schedule/download', [StudentScheduleController::class, 'downloadSchedule']);
-});
-/*
-|--------------------------------------------------------------------------
-| ALL ROLE MAJOR SUBJECTS ROUTES
-|--------------------------------------------------------------------------
-*/
-
-Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function () {
-     // ✅ bulk route (match frontend /major-subjects/bulk)
-    Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
-
-    // ✅ normal routes
-    Route::apiResource('major-subjects', MajorSubjectController::class)
-        ->only(['index', 'store', 'show', 'destroy']);
 });
 
 /*
