@@ -22,7 +22,7 @@ use App\Http\Controllers\Api\StudentAssignmentController;
 use App\Http\Controllers\Api\StudentAttendanceController;
 use App\Http\Controllers\Api\StudentMessageController;
 use App\Http\Controllers\Api\StudentCalendarController;
-
+use App\Http\Controllers\Api\StudentProfileController;
 
 /*
 |--------------------------------------------------------------------------
@@ -177,6 +177,7 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 */
 
 Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(function () {
+     Route::get('/profile', [StudentProfileController::class, 'getProfile']);
 
     // Courses
     Route::get('/courses/enrolled', [StudentCourseController::class, 'getEnrolledCourses']);

@@ -14,56 +14,75 @@ class StudentProfileController extends Controller
         try {
             $user = $request->user();
 
-            $student = Student::with(['department', 'user'])
+            $student = Student::with([
+                    'department',
+                    'registration',
+                    'user',
+                ])
                 ->where('user_id', $user->id)
                 ->firstOrFail();
 
-            // Normalize fields for frontend to prevent blank UI
-            return response()->json([
-                'data' => [
-                    'id' => $student->id,
-                    'student_code' => $student->student_code,
+            // Build a clean response shape for frontend (avoid blanks)
+            $data = [
+                'id' => $student->id,
+                'student_code' => $student->student_code,
 
-                    // Use Khmer name if exists, else English, else user's name
-                    'name' => $student->full_name_kh ?: ($student->full_name_en ?: ($student->user->name ?? '')),
+                // Names from students table (your model has full_name_kh/full_name_en)
+                'full_name_kh' => $student->full_name_kh,
+                'full_name_en' => $student->full_name_en,
 
-                    'full_name_kh' => $student->full_name_kh,
-                    'full_name_en' => $student->full_name_en,
+                // Keep a generic "name" for UI
+                'name' => $student->full_name_en ?: $student->full_name_kh ?: ($student->user->name ?? null),
 
-                    'email' => $student->user->email ?? null,
+                // Email from users table
+                'email' => $student->user->email ?? null,
 
-                    'phone' => $student->phone_number,          // frontend key
-                    'phone_number' => $student->phone_number,   // keep original too
+                // Phone + address from students table
+                'phone' => $student->phone_number,
+                'phone_number' => $student->phone_number,
+                'address' => $student->address,
 
-                    'date_of_birth' => $student->date_of_birth,
-                    'gender' => $student->gender,
-                    'nationality' => $student->nationality,
-                    'address' => $student->address,
+                'date_of_birth' => $student->date_of_birth,
+                'gender' => $student->gender,
+                'nationality' => $student->nationality,
 
-                    // department relationship
-                    'department_id' => $student->department_id,
-                    'department' => $student->department?->department_name
-                        ?? $student->department?->name
-                        ?? null,
+                'generation' => $student->generation,
 
-                    // registration related
-                    'registration_id' => $student->registration_id,
-                    'generation' => $student->generation,
+                // Parent fields (your model uses parent_name/parent_phone)
+                'parent_name' => $student->parent_name,
+                'parent_phone' => $student->parent_phone,
 
-                    // parent info (emergency contact in your UI)
-                    'emergency_contact_name' => $student->parent_name,
-                    'emergency_contact_phone' => $student->parent_phone,
-                    'emergency_contact_relation' => 'Parent',
+                // profile picture accessor already appended
+                'profile_picture_url' => $student->profile_picture_url,
 
-                    // profile picture accessor from your model (appends)
-                    'profile_picture_url' => $student->profile_picture_url,
-                    'profile_picture_path' => $student->profile_picture_path,
-                ]
-            ], 200);
+                // Department relation
+                'department_id' => $student->department_id,
+                'department' => $student->department?->department_name ?? $student->department?->name ?? null,
 
+                // Registration relation (some data comes from registration)
+                'registration_id' => $student->registration_id,
+                'registration' => $student->registration, // optional full object
+
+                // If you have these columns later, keep them (avoid breaking UI)
+                'major' => $student->registration?->major?->major_name
+                    ?? $student->registration?->major_name
+                    ?? null,
+
+                // Optional placeholders (if your DB doesn’t have them yet)
+                'year' => null,
+                'semester' => null,
+                'academic_status' => 'Active',
+
+                // GPA/credits placeholders (real GPA should come from /student/grades/gpa)
+                'current_gpa' => null,
+                'cumulative_gpa' => null,
+                'credits_earned' => 0,
+            ];
+
+            return response()->json(['data' => $data], 200);
         } catch (\Throwable $e) {
-            Log::error('StudentProfileController@getProfile error: '.$e->getMessage());
-            return response()->json(['message' => 'Failed to load profile'], 500);
+            Log::error('StudentProfileController@getProfile error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to load student profile'], 500);
         }
     }
 }
