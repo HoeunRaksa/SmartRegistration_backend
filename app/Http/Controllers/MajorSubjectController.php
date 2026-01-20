@@ -23,7 +23,11 @@ class MajorSubjectController extends Controller
             'subject_id' => 'required|exists:subjects,id',
         ]);
 
-        $majorSubject = MajorSubject::create($request->all());
+        $majorSubject = MajorSubject::firstOrCreate([
+            'major_id' => $request->major_id,
+            'subject_id' => $request->subject_id,
+        ]);
+
 
         return response()->json($majorSubject, 201);
     }

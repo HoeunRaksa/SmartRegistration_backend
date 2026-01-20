@@ -39,4 +39,9 @@ class Major extends Model
     {
         return $this->hasMany(MajorSubject::class);
     }
+    public function subjects()
+    {
+        return $this->belongsToMany(Subject::class, 'major_subjects', 'major_id', 'subject_id')
+            ->withTimestamps();
+    }
 }

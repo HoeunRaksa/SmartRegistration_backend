@@ -104,8 +104,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
-    Route::apiResource('major-subjects', MajorSubjectController::class)
-        ->only(['index', 'store', 'show', 'destroy']);
+ 
 });
 
 /*
@@ -116,6 +115,8 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
 */
 Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function () {
     Route::apiResource('courses', CourseController::class);
+       Route::apiResource('major-subjects', MajorSubjectController::class)
+        ->only(['index', 'store', 'show', 'destroy']);
 });
 
 /*
