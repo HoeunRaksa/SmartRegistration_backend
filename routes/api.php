@@ -200,6 +200,18 @@ Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(fu
     Route::get('/messages/conversations', [StudentMessageController::class, 'getConversations']);
     Route::get('/messages/{conversationId}', [StudentMessageController::class, 'getMessages']);
     Route::post('/messages/send', [StudentMessageController::class, 'sendMessage']);
+
+    // Assignments
+    Route::get('/assignments', [StudentAssignmentController::class, 'getAssignments']);
+    Route::get('/assignments/course/{courseId}', [StudentAssignmentController::class, 'getAssignmentsByCourse']);
+    Route::get('/assignments/{assignmentId}', [StudentAssignmentController::class, 'getAssignmentDetails']);
+
+    Route::post('/assignments/{assignmentId}/submit', [StudentAssignmentController::class, 'submitAssignment']);
+    Route::put('/assignments/{assignmentId}/submissions/{submissionId}', [StudentAssignmentController::class, 'updateSubmission']);
+    Route::delete('/assignments/{assignmentId}/submissions/{submissionId}', [StudentAssignmentController::class, 'deleteSubmission']);
+
+    Route::get('/submissions', [StudentAssignmentController::class, 'getMySubmissions']);
+
 });
 
 /*
