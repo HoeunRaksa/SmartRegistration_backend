@@ -23,7 +23,11 @@ use App\Http\Controllers\Api\StudentAttendanceController;
 use App\Http\Controllers\Api\StudentMessageController;
 use App\Http\Controllers\Api\StudentCalendarController;
 use App\Http\Controllers\Api\StudentProfileController;
-
+use App\Http\Controllers\Api\AdminEnrollmentController;
+use App\Http\Controllers\Api\AdminGradeController;
+use App\Http\Controllers\Api\AdminAssignmentController;
+use App\Http\Controllers\Api\AdminAttendanceController;
+use App\Http\Controllers\Api\AdminScheduleController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -120,6 +124,40 @@ Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function 
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
+        Route::prefix('admin')->group(function () {
+
+        // Enrollments
+        Route::get('/enrollments', [AdminEnrollmentController::class, 'index']);
+        Route::post('/enrollments', [AdminEnrollmentController::class, 'store']);
+        Route::delete('/enrollments/{id}', [AdminEnrollmentController::class, 'destroy']);
+        Route::put('/enrollments/{id}/status', [AdminEnrollmentController::class, 'updateStatus']);
+
+        // Grades
+        Route::get('/grades', [AdminGradeController::class, 'index']);
+        Route::post('/grades', [AdminGradeController::class, 'store']);
+        Route::put('/grades/{id}', [AdminGradeController::class, 'update']);
+        Route::delete('/grades/{id}', [AdminGradeController::class, 'destroy']);
+
+        // Assignments
+        Route::get('/assignments', [AdminAssignmentController::class, 'index']);
+        Route::post('/assignments', [AdminAssignmentController::class, 'store']);
+        Route::put('/assignments/{id}', [AdminAssignmentController::class, 'update']);
+        Route::delete('/assignments/{id}', [AdminAssignmentController::class, 'destroy']);
+        Route::get('/assignments/{id}/submissions', [AdminAssignmentController::class, 'submissions']);
+        Route::put('/submissions/{id}/grade', [AdminAssignmentController::class, 'gradeSubmission']);
+
+        // Attendance
+        Route::get('/attendance', [AdminAttendanceController::class, 'index']);
+        Route::post('/attendance', [AdminAttendanceController::class, 'store']);
+        Route::put('/attendance/{id}', [AdminAttendanceController::class, 'updateStatus']);
+        Route::post('/class-sessions', [AdminAttendanceController::class, 'createSession']);
+
+        // Schedules
+        Route::get('/schedules', [AdminScheduleController::class, 'index']);
+        Route::post('/schedules', [AdminScheduleController::class, 'store']);
+        Route::put('/schedules/{id}', [AdminScheduleController::class, 'update']);
+        Route::delete('/schedules/{id}', [AdminScheduleController::class, 'destroy']);
+    });
 
     // Registrations
     Route::get('/registers', [RegistrationController::class, 'index']);
