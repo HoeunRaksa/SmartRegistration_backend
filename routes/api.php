@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\AdminAssignmentController;
 use App\Http\Controllers\Api\AdminAttendanceController;
 use App\Http\Controllers\Api\AdminScheduleController;
 
+use App\Http\Controllers\Api\TeacherController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -98,6 +99,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Student can view own record only (optional)
     Route::get('/students/{id}', [StudentController::class, 'show']);
+
+    Route::get('/teachers', [TeacherController::class, 'index']);
+    Route::get('/teachers/{id}', [TeacherController::class, 'show']);
+    Route::post('/teachers', [TeacherController::class, 'store']);
+    Route::post('/teachers/{id}', [TeacherController::class, 'update']); // FormData friendly
+    Route::delete('/teachers/{id}', [TeacherController::class, 'destroy']);
 });
 
 /*
