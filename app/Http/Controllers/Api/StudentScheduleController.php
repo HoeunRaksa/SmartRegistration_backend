@@ -15,7 +15,6 @@ class StudentScheduleController extends Controller
     {
         $course = $item->course;
 
-        // Simple color mapping by course_id (stable)
         $colors = [
             'from-blue-500 to-cyan-500',
             'from-purple-500 to-pink-500',
@@ -25,19 +24,29 @@ class StudentScheduleController extends Controller
             'from-teal-500 to-green-500',
         ];
 
-        $color = $colors[($item->course_id ?? 0) % count($colors)];
+        $cid = (int)($item->course_id ?? 0);
+        $color = $colors[$cid % count($colors)];
+
+        $subject = $course?->majorSubject?->subject;
+
+        $courseName = $subject?->subject_name ?? $subject?->name ?? null;
+        $courseCode = $subject?->code ?? null;
+
+        $teacherName =
+            $course?->teacher?->name ??
+            $course?->teacher?->full_name ??
+            null;
 
         return [
             'id' => $item->id,
             'course_id' => $item->course_id,
 
-            // ✅ fields your frontend uses
-            'course_code' => $course->course_code ?? null,
-            'course_name' => $course->course_name ?? null,
-            'instructor'  => $course->instructor ?? ($course->teacher ?? null),
+            'course_code' => $courseCode,
+            'course_name' => $courseName,
+            'instructor'  => $teacherName,
 
-            'day' => $item->day_of_week, // frontend expects "day"
-            'day_of_week' => $item->day_of_week, // keep also original just in case
+            'day' => $item->day_of_week,
+            'day_of_week' => $item->day_of_week,
 
             'start_time' => substr((string)$item->start_time, 0, 5),
             'end_time'   => substr((string)$item->end_time, 0, 5),
@@ -48,21 +57,27 @@ class StudentScheduleController extends Controller
         ];
     }
 
+    private function enrolledCourseIds(Student $student)
+    {
+        return CourseEnrollment::where('student_id', $student->id)
+            ->where('status', 'enrolled')
+            ->distinct()
+            ->pluck('course_id');
+    }
+
     public function getSchedule(Request $request)
     {
         try {
             $student = Student::where('user_id', $request->user()->id)->firstOrFail();
+            $courseIds = $this->enrolledCourseIds($student);
 
-            $courseIds = CourseEnrollment::where('student_id', $student->id)
-                ->where('status', 'enrolled')
-                ->pluck('course_id');
-
-            $schedule = ClassSchedule::with('course')
+            $schedule = ClassSchedule::with(['course.majorSubject.subject', 'course.teacher'])
                 ->whereIn('course_id', $courseIds)
                 ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
                 ->orderBy('start_time')
                 ->get()
                 ->map(fn($item) => $this->mapScheduleItem($item));
+
 
             return response()->json(['data' => $schedule], 200);
         } catch (\Throwable $e) {
@@ -74,15 +89,12 @@ class StudentScheduleController extends Controller
     public function getTodaySchedule(Request $request)
     {
         try {
-            $today = now()->format('l'); // Monday, Tuesday...
+            $today = now()->format('l');
 
             $student = Student::where('user_id', $request->user()->id)->firstOrFail();
+            $courseIds = $this->enrolledCourseIds($student);
 
-            $courseIds = CourseEnrollment::where('student_id', $student->id)
-                ->where('status', 'enrolled')
-                ->pluck('course_id');
-
-            $schedule = ClassSchedule::with('course')
+            $schedule = ClassSchedule::with(['course.majorSubject.subject', 'course.teacher'])
                 ->whereIn('course_id', $courseIds)
                 ->where('day_of_week', $today)
                 ->orderBy('start_time')
@@ -96,7 +108,6 @@ class StudentScheduleController extends Controller
         }
     }
 
-    // ✅ NEW: /student/schedule/week?start_date=YYYY-MM-DD
     public function getWeekSchedule(Request $request)
     {
         try {
@@ -105,14 +116,9 @@ class StudentScheduleController extends Controller
             ]);
 
             $student = Student::where('user_id', $request->user()->id)->firstOrFail();
+            $courseIds = $this->enrolledCourseIds($student);
 
-            $courseIds = CourseEnrollment::where('student_id', $student->id)
-                ->where('status', 'enrolled')
-                ->pluck('course_id');
-
-            // Weekly schedule is same schedules (recurring), but you asked API exists,
-            // so we return all schedules and include weekStart for reference.
-            $schedule = ClassSchedule::with('course')
+            $schedule = ClassSchedule::with(['course.majorSubject.subject', 'course.teacher'])
                 ->whereIn('course_id', $courseIds)
                 ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
                 ->orderBy('start_time')
@@ -129,29 +135,23 @@ class StudentScheduleController extends Controller
         }
     }
 
-    // ✅ NEW: /student/schedule/upcoming
     public function getUpcoming(Request $request)
     {
         try {
             $student = Student::where('user_id', $request->user()->id)->firstOrFail();
-
-            $courseIds = CourseEnrollment::where('student_id', $student->id)
-                ->where('status', 'enrolled')
-                ->pluck('course_id');
+            $courseIds = $this->enrolledCourseIds($student);
 
             $todayName = now()->format('l');
 
-            // We return the next few classes for today sorted by time (simple + useful)
-            $schedule = ClassSchedule::with('course')
+            $schedule = ClassSchedule::with(['course.majorSubject.subject', 'course.teacher'])
                 ->whereIn('course_id', $courseIds)
                 ->where('day_of_week', $todayName)
                 ->orderBy('start_time')
                 ->get()
                 ->filter(function ($item) {
-                    // Only after now time
-                    $now = now()->format('H:i');
-                    $start = substr((string)$item->start_time, 0, 5);
-                    return $start >= $now;
+                    $now = now();
+                    $startAt = now()->setTimeFromTimeString(substr((string)$item->start_time, 0, 5));
+                    return $startAt->greaterThanOrEqualTo($now);
                 })
                 ->values()
                 ->take(5)
@@ -164,18 +164,13 @@ class StudentScheduleController extends Controller
         }
     }
 
-    // ✅ NEW: /student/schedule/download (return JSON for now; PDF later if you want)
     public function downloadSchedule(Request $request)
     {
         try {
-            // easiest: return schedule JSON as downloadable file (no extra packages)
             $student = Student::where('user_id', $request->user()->id)->firstOrFail();
+            $courseIds = $this->enrolledCourseIds($student);
 
-            $courseIds = CourseEnrollment::where('student_id', $student->id)
-                ->where('status', 'enrolled')
-                ->pluck('course_id');
-
-            $schedule = ClassSchedule::with('course')
+            $schedule = ClassSchedule::with(['course.majorSubject.subject', 'course.teacher'])
                 ->whereIn('course_id', $courseIds)
                 ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
                 ->orderBy('start_time')

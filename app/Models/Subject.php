@@ -12,6 +12,7 @@ class Subject extends Model
     protected $table = 'subjects';
 
     protected $fillable = [
+        'code',  
         'subject_name',
         'description',
         'credit',
