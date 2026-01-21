@@ -9,15 +9,18 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('subjects', function (Blueprint $table) {
-            $table->string('code', 20)->unique()->after('subject_name');
+            if (!Schema::hasColumn('subjects', 'code')) {
+                $table->string('code', 50)->nullable()->after('subject_name');
+            }
         });
     }
 
     public function down(): void
     {
         Schema::table('subjects', function (Blueprint $table) {
-            $table->dropUnique(['code']);
-            $table->dropColumn('code');
+            if (Schema::hasColumn('subjects', 'code')) {
+                $table->dropColumn('code');
+            }
         });
     }
 };
