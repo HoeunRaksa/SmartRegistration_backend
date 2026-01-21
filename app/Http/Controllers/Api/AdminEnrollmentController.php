@@ -52,42 +52,54 @@ class AdminEnrollmentController extends Controller
      */
     public function store(Request $request)
     {
-        try {
-            $data = $request->validate([
-                'student_id' => 'required|exists:students,id',
-                'course_id' => 'required|exists:courses,id',
-                'status' => 'nullable|string|in:enrolled,completed,dropped',
-            ]);
+        $data = $request->validate([
+            'student_id' => 'required|exists:students,id',
+            'course_id'  => 'required|exists:courses,id',
+            'status'     => 'nullable|string|in:enrolled,completed,dropped',
+        ]);
 
-            $status = $data['status'] ?? 'enrolled';
+        $status = $data['status'] ?? 'enrolled';
 
-            // prevent duplicate enrollment
-            $exists = CourseEnrollment::where('student_id', $data['student_id'])
-                ->where('course_id', $data['course_id'])
-                ->first();
+        $existing = CourseEnrollment::where('student_id', $data['student_id'])
+            ->where('course_id', $data['course_id'])
+            ->first();
 
-            if ($exists) {
-                return response()->json([
-                    'message' => 'Student already enrolled in this course',
-                    'data' => $exists
-                ], 409);
+        // If already enrolled, stop
+        if ($existing && $existing->status === 'enrolled' && $status === 'enrolled') {
+            return response()->json(['message' => 'Student already enrolled'], 409);
+        }
+
+        // Reuse record if exists, otherwise create
+        if ($existing) {
+            $update = ['status' => $status];
+
+            if ($status === 'enrolled') {
+                $update['progress'] = 0;
+                $update['enrolled_at'] = now();
+                $update['dropped_at'] = null;
             }
 
-            $enrollment = CourseEnrollment::create([
-                'student_id' => $data['student_id'],
-                'course_id' => $data['course_id'],
-                'status' => $status,
-            ]);
+            if ($status === 'dropped') {
+                $update['dropped_at'] = now();
+            }
 
-            return response()->json([
-                'message' => 'Enrollment created',
-                'data' => $enrollment->load(['student', 'course']),
-            ], 201);
-        } catch (\Throwable $e) {
-            Log::error('AdminEnrollmentController@store error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to create enrollment'], 500);
+            $existing->update($update);
+
+            return response()->json(['message' => 'Enrollment updated', 'data' => $existing], 200);
         }
+
+        $enrollment = CourseEnrollment::create([
+            'student_id'  => $data['student_id'],
+            'course_id'   => $data['course_id'],
+            'status'      => $status,
+            'progress'    => $status === 'enrolled' ? 0 : null,
+            'enrolled_at' => $status === 'enrolled' ? now() : null,
+            'dropped_at'  => $status === 'dropped' ? now() : null,
+        ]);
+
+        return response()->json(['message' => 'Enrollment created', 'data' => $enrollment], 201);
     }
+
 
     /**
      * DELETE /api/admin/enrollments/{id}
