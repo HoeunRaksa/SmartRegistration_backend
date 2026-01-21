@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Course;
 use Illuminate\Http\Request;
-
+use App\Models\MajorSubject;
 class CourseController extends Controller
 {
     // GET: /api/courses
@@ -19,20 +19,59 @@ class CourseController extends Controller
         return response()->json(['data' => $data], 200);
     }
 
-    // POST: /api/courses
 public function store(Request $request)
 {
     $validated = $request->validate([
-        'major_subject_id' => 'required|exists:major_subjects,id',
-        'teacher_id'       => 'required|exists:teachers,id',
-        'semester'         => 'required|integer|min:1|max:3',
-        'academic_year'    => 'required|string|regex:/^\d{4}-\d{4}$/',
+        'major_id'       => 'required|exists:majors,id',
+        'subject_id'     => 'required|exists:subjects,id',
+        'teacher_id'     => 'required|exists:teachers,id',
+        'academic_year'  => 'required|string|regex:/^\d{4}-\d{4}$/',
+        'class_group_id' => 'nullable|exists:class_groups,id',
+        'semester'       => 'nullable|integer|min:1|max:3',
     ]);
 
-    $course = Course::create($validated);
+    // ✅ find mapping row (major_subject_id)
+    $ms = MajorSubject::where('major_id', $validated['major_id'])
+        ->where('subject_id', $validated['subject_id'])
+        ->first();
 
-    return response()->json($course, 201);
+    if (!$ms) {
+        return response()->json([
+            'message' => 'This subject is not assigned to this major yet. Please map it first in MajorSubjects.'
+        ], 422);
+    }
+
+    // ✅ default semester from mapping if not provided
+    $semester = $validated['semester'] ?? $ms->semester ?? 1;
+
+    // ✅ prevent duplicates (optional but safe)
+    $exists = Course::where('major_subject_id', $ms->id)
+        ->where('teacher_id', $validated['teacher_id'])
+        ->where('academic_year', $validated['academic_year'])
+        ->where('semester', $semester)
+        ->when(isset($validated['class_group_id']), fn($q) => $q->where('class_group_id', $validated['class_group_id']))
+        ->exists();
+
+    if ($exists) {
+        return response()->json([
+            'message' => 'Course already exists for this major/subject/teacher/semester/year.'
+        ], 409);
+    }
+
+    $course = Course::create([
+        'major_subject_id' => $ms->id,
+        'teacher_id'       => $validated['teacher_id'],
+        'semester'         => $semester,
+        'academic_year'    => $validated['academic_year'],
+        'class_group_id'   => $validated['class_group_id'] ?? null,
+    ]);
+
+    return response()->json([
+        'message' => 'Course created successfully',
+        'data' => $course->load(['majorSubject.major','majorSubject.subject','teacher','classGroup'])
+    ], 201);
 }
+
 
 
     // GET: /api/courses/{id}
