@@ -16,7 +16,8 @@ class Course extends Model
         'major_subject_id',
         'teacher_id',
         'semester',
-        'academic_year'
+        'academic_year',
+        'class_group_id',
     ];
 
     public function majorSubject()
@@ -27,5 +28,10 @@ class Course extends Model
     public function teacher()
     {
         return $this->belongsTo(Teacher::class);
+    }
+
+    public function classGroup()
+    {
+        return $this->belongsTo(\App\Models\ClassGroup::class, 'class_group_id');
     }
 }
