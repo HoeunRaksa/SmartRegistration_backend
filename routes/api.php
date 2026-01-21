@@ -125,13 +125,14 @@ Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function 
     // Courses
     Route::apiResource('courses', CourseController::class);
 
-    // MajorSubjects normal
+    // ✅ Bulk create MajorSubjects (PLACE FIRST)
+    Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
+
+    // MajorSubjects normal CRUD
     Route::apiResource('major-subjects', MajorSubjectController::class)
         ->only(['index', 'store', 'show', 'destroy']);
-
-    // ✅ Bulk create MajorSubjects
-  Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
 });
+
 
 /*
 |--------------------------------------------------------------------------
