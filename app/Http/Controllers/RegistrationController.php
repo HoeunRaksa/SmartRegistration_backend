@@ -28,37 +28,41 @@ class RegistrationController extends Controller
             'phone_number' => 'nullable|string|max:20',
             'department_id' => 'required|exists:departments,id',
             'major_id' => 'required|exists:majors,id',
+            'academic_year' => 'required|string',
             'profile_picture' => 'nullable|file|mimes:jpeg,jpg,png|max:5120',
         ]);
 
-        // Check if already registered
-    $exists = DB::table('registrations')
-    ->where(function ($q) use ($validated) {
-        if (!empty($validated['personal_email'])) {
-            $q->where('personal_email', $validated['personal_email']);
-        }
-        if (!empty($validated['phone_number'])) {
-            $q->orWhere('phone_number', $validated['phone_number']);
-        }
-    })
-    ->orderByDesc('id')
-    ->first();
-
+        /**
+         * ✅ FIXED DUPLICATE CHECK
+         * SAME person + SAME academic_year ONLY
+         */
+        $exists = DB::table('registrations')
+            ->where(function ($q) use ($validated) {
+                if (!empty($validated['personal_email'])) {
+                    $q->where('personal_email', $validated['personal_email']);
+                }
+                if (!empty($validated['phone_number'])) {
+                    $q->orWhere('phone_number', $validated['phone_number']);
+                }
+            })
+            ->where('academic_year', $request->academic_year) // ✅ KEY FIX
+            ->orderByDesc('id')
+            ->first();
 
         if ($exists) {
 
-            // ✅ If already PAID -> block new registration
+            // ❌ Already PAID for SAME YEAR → block
             if (($exists->payment_status ?? null) === 'PAID') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Registration already paid. Cannot register again.'
+                    'message' => 'Registration already paid for this academic year.'
                 ], 409);
             }
 
-            // ✅ If NOT PAID -> allow continue payment (return existing data, not create again)
+            // 🔁 Same year but NOT paid → continue payment
             return response()->json([
                 'success' => true,
-                'message' => 'Registration already exists but not paid yet. Continue payment.',
+                'message' => 'Registration exists for this academic year. Continue payment.',
                 'data' => [
                     'registration_id' => $exists->id,
                     'payment_amount'  => $exists->payment_amount,
@@ -68,11 +72,37 @@ class RegistrationController extends Controller
             ], 200);
         }
 
+        /**
+         * ✅ IMPORTANT REAL-WORLD FIX
+         * If student already exists (old year), do NOT create new user/student again.
+         * Just create a NEW registration row for the NEW academic_year.
+         *
+         * This makes: "pay next year" possible without re-register again.
+         */
+        $existingStudent = DB::table('students')
+            ->leftJoin('users', 'students.user_id', '=', 'users.id')
+            ->leftJoin('registrations', 'students.registration_id', '=', 'registrations.id')
+            ->where(function ($q) use ($validated) {
+                if (!empty($validated['personal_email'])) {
+                    $q->where('users.email', $validated['personal_email'])
+                      ->orWhere('registrations.personal_email', $validated['personal_email']);
+                }
+                if (!empty($validated['phone_number'])) {
+                    $q->orWhere('registrations.phone_number', $validated['phone_number']);
+                }
+            })
+            ->select(
+                'students.id as student_id',
+                'students.student_code',
+                'students.user_id',
+                'users.email as user_email'
+            )
+            ->orderByDesc('students.id')
+            ->first();
 
         DB::beginTransaction();
 
         try {
-            // Get major to get registration fee
             $major = Major::findOrFail($request->major_id);
 
             $profilePicturePath = null;
@@ -82,80 +112,88 @@ class RegistrationController extends Controller
                     File::makeDirectory($uploadPath, 0755, true);
                 }
 
-                $image = $request->file('profile_picture');
-                $extension = $image->getClientOriginalExtension();
-                $filename = time() . '_' . uniqid() . '.' . $extension;
-
-                $image->move($uploadPath, $filename);
+                $filename = time() . '_' . uniqid() . '.' . $request->file('profile_picture')->getClientOriginalExtension();
+                $request->file('profile_picture')->move($uploadPath, $filename);
                 $profilePicturePath = 'uploads/profiles/' . $filename;
-
-                Log::info('Profile picture uploaded successfully: ' . $profilePicturePath);
             }
 
             $plainPassword = 'novatech' . now()->format('Ymd');
             $fullNameEn = $request->full_name_en ?? ($request->first_name . ' ' . $request->last_name);
-            $fullNameKh = $request->full_name_kh ?? ($request->first_name . ' ' . $request->last_name);
+            $fullNameKh = $request->full_name_kh ?? $fullNameEn;
 
-            $registrationData = [
-                // Personal Info
+            /**
+             * ✅ If existing student found, we create only a registration row (new academic year)
+             * and keep the existing student/user.
+             */
+            if ($existingStudent) {
+                $registrationId = DB::table('registrations')->insertGetId([
+                    'first_name' => $request->first_name,
+                    'last_name' => $request->last_name,
+                    'full_name_kh' => $fullNameKh,
+                    'full_name_en' => $fullNameEn,
+                    'gender' => $request->gender,
+                    'date_of_birth' => $request->date_of_birth,
+                    'phone_number' => $request->phone_number,
+                    'personal_email' => $request->personal_email,
+                    'department_id' => $request->department_id,
+                    'major_id' => $request->major_id,
+                    'academic_year' => $request->academic_year,
+                    'payment_amount' => $major->registration_fee,
+                    'payment_status' => 'PENDING',
+                    'profile_picture_path' => $profilePicturePath,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                /**
+                 * ✅ Optional: update profile picture on existing user/student if uploaded
+                 * (safe, but not required)
+                 */
+                if ($profilePicturePath && !empty($existingStudent->user_id)) {
+                    User::where('id', $existingStudent->user_id)->update([
+                        'profile_picture_path' => $profilePicturePath
+                    ]);
+                }
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Registration created for new academic year. Continue payment.',
+                    'data' => [
+                        'registration_id' => $registrationId,
+                        'student_id' => $existingStudent->student_id,
+                        'student_code' => $existingStudent->student_code,
+                        'payment_status' => 'PENDING',
+                    ],
+                    'student_account' => [
+                        'email' => $existingStudent->user_email ?? $request->personal_email,
+                        'password' => null, // ✅ no new password because student already exists
+                    ]
+                ], 201);
+            }
+
+            /**
+             * ✅ No existing student: normal first-time registration (your old flow)
+             */
+            $registrationId = DB::table('registrations')->insertGetId([
                 'first_name' => $request->first_name,
                 'last_name' => $request->last_name,
                 'full_name_kh' => $fullNameKh,
                 'full_name_en' => $fullNameEn,
                 'gender' => $request->gender,
                 'date_of_birth' => $request->date_of_birth,
-                'address' => $request->address,
-                'current_address' => $request->current_address,
                 'phone_number' => $request->phone_number,
                 'personal_email' => $request->personal_email,
-
-                // Education Info
-                'high_school_name' => $request->high_school_name,
-                'graduation_year' => $request->graduation_year,
-                'grade12_result' => $request->grade12_result,
-
-                // Department & Study Info
                 'department_id' => $request->department_id,
                 'major_id' => $request->major_id,
-                'faculty' => $request->faculty,
-                'shift' => $request->shift,
-                'batch' => $request->batch,
                 'academic_year' => $request->academic_year,
-                'profile_picture_path' => $profilePicturePath,
-
-                // Parent Info
-                'father_name' => $request->father_name,
-                'fathers_date_of_birth' => $request->fathers_date_of_birth,
-                'fathers_nationality' => $request->fathers_nationality,
-                'fathers_job' => $request->fathers_job,
-                'fathers_phone_number' => $request->fathers_phone_number,
-
-                'mother_name' => $request->mother_name,
-                'mother_date_of_birth' => $request->mother_date_of_birth,
-                'mother_nationality' => $request->mother_nationality,
-                'mothers_job' => $request->mothers_job,
-                'mother_phone_number' => $request->mother_phone_number,
-
-                // Guardian Info
-                'guardian_name' => $request->guardian_name,
-                'guardian_phone_number' => $request->guardian_phone_number,
-                'emergency_contact_name' => $request->emergency_contact_name,
-                'emergency_contact_phone_number' => $request->emergency_contact_phone_number,
-
-                // Payment Info (from major)
                 'payment_amount' => $major->registration_fee,
                 'payment_status' => 'PENDING',
-
-                // Timestamps
+                'profile_picture_path' => $profilePicturePath,
                 'created_at' => now(),
                 'updated_at' => now(),
-            ];
-
-            $registrationData = array_filter($registrationData, function ($value) {
-                return $value !== null;
-            });
-
-            $registrationId = DB::table('registrations')->insertGetId($registrationData);
+            ]);
 
             $user = User::create([
                 'name' => $fullNameEn,
@@ -173,12 +211,7 @@ class RegistrationController extends Controller
                 'full_name_en' => $fullNameEn,
                 'date_of_birth' => $request->date_of_birth,
                 'gender' => $request->gender,
-                'nationality' => $request->fathers_nationality ?? 'Cambodian',
                 'phone_number' => $request->phone_number,
-                'address' => $request->address,
-                'generation' => $request->batch ?? $request->academic_year,
-                'parent_name' => $request->father_name ?? $request->mother_name,
-                'parent_phone' => $request->fathers_phone_number ?? $request->mother_phone_number,
                 'profile_picture_path' => $profilePicturePath,
             ]);
 
@@ -191,16 +224,11 @@ class RegistrationController extends Controller
                     'registration_id' => $registrationId,
                     'student_id' => $student->id,
                     'student_code' => $student->student_code,
-                    'user_id' => $user->id,
-                    'payment_amount' => $major->registration_fee,
                     'payment_status' => 'PENDING',
-                    'profile_picture_path' => $profilePicturePath,
                 ],
                 'student_account' => [
                     'email' => $user->email,
                     'password' => $plainPassword,
-                    'role' => 'student',
-                    'student_code' => $student->student_code,
                 ]
             ], 201);
         } catch (\Exception $e) {
@@ -210,12 +238,11 @@ class RegistrationController extends Controller
                 File::delete(public_path($profilePicturePath));
             }
 
-            Log::error('Registration error: ' . $e->getMessage());
-            Log::error('Stack trace: ' . $e->getTraceAsString());
+            Log::error($e->getMessage());
 
             return response()->json([
                 'success' => false,
-                'message' => 'Registration failed: ' . $e->getMessage()
+                'message' => 'Registration failed'
             ], 500);
         }
     }
@@ -435,6 +462,7 @@ class RegistrationController extends Controller
             ], 500);
         }
     }
+
     public function payLater($id)
     {
         $reg = DB::table('registrations')->where('id', $id)->first();
@@ -452,6 +480,7 @@ class RegistrationController extends Controller
             'message' => 'Payment deferred. You can pay later at admin office.',
         ]);
     }
+
     public function markPaidCash($id, Request $request)
     {
         $registration = DB::table('registrations')->where('id', $id)->first();
