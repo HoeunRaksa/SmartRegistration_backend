@@ -10,7 +10,7 @@ use App\Http\Controllers\Api\UserSettingsController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\MajorController;
-use App\Http\Controllers\MajorSubjectController;
+use App\Http\Controllers\Api\MajorSubjectController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\StudentController;
