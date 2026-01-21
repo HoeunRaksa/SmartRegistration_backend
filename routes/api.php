@@ -130,7 +130,8 @@ Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function 
         ->only(['index', 'store', 'show', 'destroy']);
 
     // ✅ Bulk create MajorSubjects
-    Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'storeBulk']);
+    Route::post('/major-subjects/bulk', [MajorSubjectController::class, 'bulkStore']);
+
 });
 
 /*
