@@ -132,8 +132,6 @@ Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function 
     Route::apiResource('major-subjects', MajorSubjectController::class)
         ->only(['index', 'store', 'show', 'destroy']);
 });
-
-
 /*
 |--------------------------------------------------------------------------
 | STAFF + ADMIN ROUTES (FULL MANAGEMENT)

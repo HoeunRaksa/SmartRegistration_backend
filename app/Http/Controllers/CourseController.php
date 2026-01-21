@@ -19,57 +19,77 @@ class CourseController extends Controller
         return response()->json(['data' => $data], 200);
     }
 
+// POST: /api/courses
 public function store(Request $request)
 {
     $validated = $request->validate([
-        'major_id'       => 'required|exists:majors,id',
-        'subject_id'     => 'required|exists:subjects,id',
-        'teacher_id'     => 'required|exists:teachers,id',
-        'academic_year'  => 'required|string|regex:/^\d{4}-\d{4}$/',
-        'class_group_id' => 'nullable|exists:class_groups,id',
-        'semester'       => 'nullable|integer|min:1|max:3',
+        // allow either one
+        'major_subject_id' => 'nullable|exists:major_subjects,id',
+
+        // easy UI way
+        'major_id'   => 'nullable|exists:majors,id',
+        'subject_id' => 'nullable|exists:subjects,id',
+
+        'teacher_id'    => 'required|exists:teachers,id',
+        'semester'      => 'required|integer|min:1|max:3',
+        'academic_year' => 'required|string|regex:/^\d{4}-\d{4}$/',
+        'class_group_id'=> 'nullable|exists:class_groups,id',
     ]);
 
-    // ✅ find mapping row (major_subject_id)
-    $ms = MajorSubject::where('major_id', $validated['major_id'])
-        ->where('subject_id', $validated['subject_id'])
-        ->first();
+    // ✅ Resolve major_subject_id if user sent major_id + subject_id
+    $majorSubjectId = $validated['major_subject_id'] ?? null;
 
-    if (!$ms) {
-        return response()->json([
-            'message' => 'This subject is not assigned to this major yet. Please map it first in MajorSubjects.'
-        ], 422);
+    if (!$majorSubjectId) {
+        if (empty($validated['major_id']) || empty($validated['subject_id'])) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => [
+                    'major_subject_id' => ['major_subject_id OR (major_id + subject_id) is required.']
+                ]
+            ], 422);
+        }
+
+        $ms = \App\Models\MajorSubject::where('major_id', (int)$validated['major_id'])
+            ->where('subject_id', (int)$validated['subject_id'])
+            ->first();
+
+        if (!$ms) {
+            return response()->json([
+                'message' => 'Major-Subject mapping not found. Please assign subject to major first.',
+                'errors' => [
+                    'subject_id' => ['This subject is not assigned to the selected major.']
+                ]
+            ], 422);
+        }
+
+        $majorSubjectId = $ms->id;
     }
 
-    // ✅ default semester from mapping if not provided
-    $semester = $validated['semester'] ?? $ms->semester ?? 1;
-
-    // ✅ prevent duplicates (optional but safe)
-    $exists = Course::where('major_subject_id', $ms->id)
-        ->where('teacher_id', $validated['teacher_id'])
-        ->where('academic_year', $validated['academic_year'])
-        ->where('semester', $semester)
-        ->when(isset($validated['class_group_id']), fn($q) => $q->where('class_group_id', $validated['class_group_id']))
+    // ✅ Prevent duplicates (same major_subject + academic_year + semester + class_group)
+    $exists = \App\Models\Course::where('major_subject_id', $majorSubjectId)
+        ->where('teacher_id', (int)$validated['teacher_id'])
+        ->where('semester', (int)$validated['semester'])
+        ->where('academic_year', (string)$validated['academic_year'])
+        ->when(array_key_exists('class_group_id', $validated), function ($q) use ($validated) {
+            $q->where('class_group_id', $validated['class_group_id']);
+        })
         ->exists();
 
     if ($exists) {
         return response()->json([
-            'message' => 'Course already exists for this major/subject/teacher/semester/year.'
+            'message' => 'Course already exists for this subject/major/semester/year (and class group).'
         ], 409);
     }
 
-    $course = Course::create([
-        'major_subject_id' => $ms->id,
-        'teacher_id'       => $validated['teacher_id'],
-        'semester'         => $semester,
-        'academic_year'    => $validated['academic_year'],
+    $course = \App\Models\Course::create([
+        'major_subject_id' => $majorSubjectId,
+        'teacher_id'       => (int)$validated['teacher_id'],
+        'semester'         => (int)$validated['semester'],
+        'academic_year'    => (string)$validated['academic_year'],
         'class_group_id'   => $validated['class_group_id'] ?? null,
     ]);
 
-    return response()->json([
-        'message' => 'Course created successfully',
-        'data' => $course->load(['majorSubject.major','majorSubject.subject','teacher','classGroup'])
-    ], 201);
+    return response()->json(['data' => $course], 201);
 }
 
 
