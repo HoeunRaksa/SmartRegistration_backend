@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class BackfillStudentAcademicPeriods extends Command
 {
@@ -33,17 +34,18 @@ class BackfillStudentAcademicPeriods extends Command
             return Command::FAILURE;
         }
 
-        // Pull from existing data:
-        // students.registration_id -> registrations.id
-        // registrations.academic_year, payment_amount, payment_status, payment_date
+        $hasAmount = Schema::hasColumn('registrations', 'payment_amount');
+        $hasStatus = Schema::hasColumn('registrations', 'payment_status');
+        $hasDate   = Schema::hasColumn('registrations', 'payment_date');
+
         $rows = DB::table('students')
             ->join('registrations', 'students.registration_id', '=', 'registrations.id')
             ->select(
                 'students.id as student_id',
                 'registrations.academic_year',
-                'registrations.payment_amount',
-                'registrations.payment_status',
-                'registrations.payment_date'
+                DB::raw($hasAmount ? 'registrations.payment_amount as payment_amount' : '0 as payment_amount'),
+                DB::raw($hasStatus ? 'registrations.payment_status as payment_status' : "'PENDING' as payment_status"),
+                DB::raw($hasDate ? 'registrations.payment_date as payment_date' : 'NULL as payment_date')
             )
             ->orderBy('students.id')
             ->get();

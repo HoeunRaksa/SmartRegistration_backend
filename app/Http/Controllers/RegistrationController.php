@@ -13,6 +13,69 @@ use App\Models\Major;
 
 class RegistrationController extends Controller
 {
+    /**
+     * ✅ Helper: find student by registration OR by email/phone (works for old+new flow)
+     * This prevents breaking existing data when students.registration_id is still the first registration.
+     */
+    private function findStudentByRegistrationOrContact($registrationId, ?string $email, ?string $phone)
+    {
+        // 1) Direct link (old flow)
+        $student = DB::table('students')
+            ->where('registration_id', $registrationId)
+            ->select('id', 'student_code', 'user_id', 'registration_id')
+            ->first();
+
+        if ($student) {
+            return $student;
+        }
+
+        // 2) Match by email/phone (new flow safe)
+        return DB::table('students')
+            ->leftJoin('users', 'students.user_id', '=', 'users.id')
+            ->leftJoin('registrations', 'students.registration_id', '=', 'registrations.id')
+            ->where(function ($q) use ($email, $phone) {
+                if (!empty($email)) {
+                    $q->where('users.email', $email)
+                      ->orWhere('registrations.personal_email', $email);
+                }
+                if (!empty($phone)) {
+                    $q->orWhere('registrations.phone_number', $phone);
+                }
+            })
+            ->select(
+                'students.id',
+                'students.student_code',
+                'students.user_id',
+                'students.registration_id'
+            )
+            ->orderByDesc('students.id')
+            ->first();
+    }
+
+    /**
+     * ✅ Helper: upsert academic period WITHOUT overwriting created_at.
+     */
+    private function upsertAcademicPeriodNoCreatedAtOverwrite(int $studentId, string $academicYear, int $semester, array $data)
+    {
+        // Try UPDATE first
+        $updated = DB::table('student_academic_periods')
+            ->where('student_id', $studentId)
+            ->where('academic_year', $academicYear)
+            ->where('semester', $semester)
+            ->update(array_merge($data, ['updated_at' => now()]));
+
+        // If not exists -> INSERT
+        if ($updated === 0) {
+            DB::table('student_academic_periods')->insert(array_merge([
+                'student_id' => $studentId,
+                'academic_year' => $academicYear,
+                'semester' => $semester,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ], $data));
+        }
+    }
+
     public function store(Request $request)
     {
         Log::info('Registration request received');
@@ -35,10 +98,6 @@ class RegistrationController extends Controller
 
         $semester = (int) ($request->semester ?? 1);
 
-        /**
-         * ✅ FIXED DUPLICATE CHECK
-         * SAME person + SAME academic_year ONLY
-         */
         $exists = DB::table('registrations')
             ->where(function ($q) use ($validated) {
                 if (!empty($validated['personal_email'])) {
@@ -58,15 +117,19 @@ class RegistrationController extends Controller
              * ✅ NEW FLOW CHECK:
              * If period already PAID for same academic_year + semester → block
              * If period exists but not PAID → continue payment
+             *
+             * ✅ FIX: do NOT rely only on students.registration_id = exists->id
+             * because for returning students, students.registration_id may be old.
              */
-            $studentLink = DB::table('students')
-                ->where('registration_id', $exists->id)
-                ->select('id as student_id', 'student_code')
-                ->first();
+            $studentLink = $this->findStudentByRegistrationOrContact(
+                $exists->id,
+                $request->personal_email,
+                $request->phone_number
+            );
 
             if ($studentLink) {
                 $period = DB::table('student_academic_periods')
-                    ->where('student_id', $studentLink->student_id)
+                    ->where('student_id', $studentLink->id)
                     ->where('academic_year', $request->academic_year)
                     ->where('semester', $semester)
                     ->first();
@@ -84,7 +147,7 @@ class RegistrationController extends Controller
                         'message' => 'Academic period exists. Continue payment.',
                         'data' => [
                             'registration_id' => $exists->id,
-                            'student_id' => $studentLink->student_id,
+                            'student_id' => $studentLink->id,
                             'student_code' => $studentLink->student_code,
                             'academic_year' => $period->academic_year,
                             'semester' => $period->semester,
@@ -175,20 +238,16 @@ class RegistrationController extends Controller
                     ]);
                 }
 
-                // ✅ Create the academic period row (idempotent)
-                DB::table('student_academic_periods')->updateOrInsert(
-                    [
-                        'student_id' => $existingStudent->student_id,
-                        'academic_year' => $request->academic_year,
-                        'semester' => $semester,
-                    ],
+                // ✅ Create the academic period row (idempotent) WITHOUT overwriting created_at
+                $this->upsertAcademicPeriodNoCreatedAtOverwrite(
+                    (int) $existingStudent->student_id,
+                    (string) $request->academic_year,
+                    (int) $semester,
                     [
                         'status' => 'ACTIVE',
                         'tuition_amount' => $major->registration_fee,
                         'payment_status' => 'PENDING',
                         'paid_at' => null,
-                        'updated_at' => now(),
-                        'created_at' => now(),
                     ]
                 );
 
@@ -252,20 +311,16 @@ class RegistrationController extends Controller
                 'profile_picture_path' => $profilePicturePath,
             ]);
 
-            // ✅ Create the academic period row for first-time student
-            DB::table('student_academic_periods')->updateOrInsert(
-                [
-                    'student_id' => $student->id,
-                    'academic_year' => $request->academic_year,
-                    'semester' => $semester,
-                ],
+            // ✅ Create the academic period row for first-time student (no created_at overwrite)
+            $this->upsertAcademicPeriodNoCreatedAtOverwrite(
+                (int) $student->id,
+                (string) $request->academic_year,
+                (int) $semester,
                 [
                     'status' => 'ACTIVE',
                     'tuition_amount' => $major->registration_fee,
                     'payment_status' => 'PENDING',
                     'paid_at' => null,
-                    'updated_at' => now(),
-                    'created_at' => now(),
                 ]
             );
 
@@ -523,12 +578,21 @@ class RegistrationController extends Controller
         }
 
         // ✅ New flow: payLater should be applied on student_academic_periods, not registrations
-        $student = DB::table('students')->where('registration_id', $id)->first();
+        // ✅ FIX: student may not link by registration_id for returning students
+        $student = $this->findStudentByRegistrationOrContact(
+            (int) $id,
+            $reg->personal_email ?? null,
+            $reg->phone_number ?? null
+        );
+
         if (!$student) {
             return response()->json(['success' => false, 'message' => 'Student not found for this registration'], 404);
         }
 
-        $semester = 1; // keep simple default; frontend can send later if needed
+        $semester = (int) (request()->input('semester', 1)); // ✅ allow frontend to send semester
+        if (!in_array($semester, [1, 2], true)) {
+            return response()->json(['success' => false, 'message' => 'Invalid semester. Allowed: 1 or 2'], 422);
+        }
 
         DB::table('student_academic_periods')
             ->where('student_id', $student->id)
@@ -559,24 +623,26 @@ class RegistrationController extends Controller
 
         DB::beginTransaction();
         try {
-            $student = DB::table('students')->where('registration_id', $id)->first();
+            // ✅ FIX: student may not link by registration_id for returning students
+            $student = $this->findStudentByRegistrationOrContact(
+                (int) $id,
+                $registration->personal_email ?? null,
+                $registration->phone_number ?? null
+            );
+
             if (!$student) {
                 return response()->json(['success' => false, 'message' => 'Student not found for this registration'], 404);
             }
 
-            // ✅ Update academic period payment status
-            DB::table('student_academic_periods')->updateOrInsert(
-                [
-                    'student_id' => $student->id,
-                    'academic_year' => $registration->academic_year,
-                    'semester' => $semester,
-                ],
+            // ✅ Update academic period payment status WITHOUT overwriting created_at
+            $this->upsertAcademicPeriodNoCreatedAtOverwrite(
+                (int) $student->id,
+                (string) $registration->academic_year,
+                (int) $semester,
                 [
                     'status' => 'ACTIVE',
                     'payment_status' => 'PAID',
                     'paid_at' => now(),
-                    'updated_at' => now(),
-                    'created_at' => now(),
                 ]
             );
 
