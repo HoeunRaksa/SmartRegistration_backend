@@ -36,7 +36,7 @@ class RegistrationController extends Controller
             ->where(function ($q) use ($email, $phone) {
                 if (!empty($email)) {
                     $q->where('users.email', $email)
-                      ->orWhere('registrations.personal_email', $email);
+                        ->orWhere('registrations.personal_email', $email);
                 }
                 if (!empty($phone)) {
                     $q->orWhere('registrations.phone_number', $phone);
@@ -173,7 +173,7 @@ class RegistrationController extends Controller
             ->where(function ($q) use ($validated) {
                 if (!empty($validated['personal_email'])) {
                     $q->where('users.email', $validated['personal_email'])
-                      ->orWhere('registrations.personal_email', $validated['personal_email']);
+                        ->orWhere('registrations.personal_email', $validated['personal_email']);
                 }
                 if (!empty($validated['phone_number'])) {
                     $q->orWhere('registrations.phone_number', $validated['phone_number']);
@@ -358,19 +358,47 @@ class RegistrationController extends Controller
         }
     }
 
-    public function index()
+    public function index(Request $request)
     {
+        $semester = (int) ($request->input('semester', 1));
+        if (!in_array($semester, [1, 2], true)) {
+            $semester = 1;
+        }
+
         $registrations = DB::table('registrations')
             ->join('departments', 'registrations.department_id', '=', 'departments.id')
             ->join('majors', 'registrations.major_id', '=', 'majors.id')
-            ->leftJoin('students', 'registrations.id', '=', 'students.registration_id')
+
+            // ✅ join users by email so returning-student registrations can still map to student
+            ->leftJoin('users', 'users.email', '=', 'registrations.personal_email')
+
+            // ✅ join students by (registration_id) OR (user_id) so old + new flow both work
+            ->leftJoin('students', function ($join) {
+                $join->on('students.registration_id', '=', 'registrations.id')
+                    ->orOn('students.user_id', '=', 'users.id');
+            })
+
+            // ✅ join academic period for selected semester + academic_year
+            ->leftJoin('student_academic_periods as sap', function ($join) use ($semester) {
+                $join->on('sap.student_id', '=', 'students.id')
+                    ->on('sap.academic_year', '=', 'registrations.academic_year')
+                    ->where('sap.semester', '=', $semester);
+            })
+
             ->select(
                 'registrations.*',
                 'departments.name as department_name',
                 'majors.major_name',
                 'majors.registration_fee',
+
                 'students.student_code',
-                'students.id as student_id'
+                'students.id as student_id',
+
+                // ✅ IMPORTANT: send period payment fields to frontend
+                DB::raw('COALESCE(sap.payment_status, "PENDING") as period_payment_status'),
+                'sap.paid_at as period_paid_at',
+                'sap.tuition_amount as period_tuition_amount',
+                DB::raw($semester . ' as period_semester')
             )
             ->orderBy('registrations.created_at', 'desc')
             ->get();
@@ -384,6 +412,7 @@ class RegistrationController extends Controller
 
         return response()->json(['success' => true, 'data' => $registrations]);
     }
+
 
     public function show($id)
     {
