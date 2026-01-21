@@ -26,19 +26,16 @@ class MajorSubject extends Model
 
     public function major()
     {
-        return $this->belongsTo(Major::class);
+        return $this->belongsTo(Major::class, 'major_id');
     }
 
     public function subject()
     {
-        return $this->belongsTo(Subject::class);
+        return $this->belongsTo(Subject::class, 'subject_id');
     }
 
     public function courses()
     {
-        return $this->hasMany(Course::class);
+        return $this->hasMany(Course::class, 'major_subject_id');
     }
 }
-
-
-

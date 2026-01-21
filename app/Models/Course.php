@@ -22,12 +22,13 @@ class Course extends Model
 
     public function majorSubject()
     {
-        return $this->belongsTo(MajorSubject::class);
+        // ✅ explicitly set FK for clarity
+        return $this->belongsTo(MajorSubject::class, 'major_subject_id');
     }
 
     public function teacher()
     {
-        return $this->belongsTo(Teacher::class);
+        return $this->belongsTo(Teacher::class, 'teacher_id');
     }
 
     public function classGroup()
