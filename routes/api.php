@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\AdminGradeController;
 use App\Http\Controllers\Api\AdminAssignmentController;
 use App\Http\Controllers\Api\AdminAttendanceController;
 use App\Http\Controllers\Api\AdminScheduleController;
+use App\Http\Controllers\Api\ClassGroupController;
 
 use App\Http\Controllers\Api\TeacherController;
 /*
@@ -131,6 +132,8 @@ Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function 
     // MajorSubjects normal CRUD
     Route::apiResource('major-subjects', MajorSubjectController::class)
         ->only(['index', 'store', 'show', 'destroy']);
+
+    Route::apiResource('class-groups', ClassGroupController::class);
 });
 /*
 |--------------------------------------------------------------------------
