@@ -7,10 +7,9 @@ use Illuminate\Database\Eloquent\Model;
 
 class Student extends Model
 {
-     use HasFactory;
+    use HasFactory;
 
     protected $table = 'students';
-
     protected $appends = ['profile_picture_url'];
 
     public function getProfilePictureUrlAttribute()
@@ -42,15 +41,12 @@ class Student extends Model
     {
         parent::boot();
 
-        // Auto-generate student code like STU-20250101010203-1234
         static::creating(function ($student) {
             if (empty($student->student_code)) {
                 $student->student_code = 'STU-' . now()->format('YmdHis') . '-' . rand(1000, 9999);
             }
         });
     }
-
-    // ------------------- Relationships -------------------
 
     public function registration()
     {
@@ -65,5 +61,22 @@ class Student extends Model
     public function department()
     {
         return $this->belongsTo(Department::class);
+    }
+
+    // ✅ NEW: student -> class groups (history by year/semester)
+    public function classGroups()
+    {
+        return $this->belongsToMany(\App\Models\ClassGroup::class, 'student_class_groups')
+            ->withPivot(['academic_year', 'semester'])
+            ->withTimestamps();
+    }
+
+    // ✅ OPTIONAL helper: current class group for specific period
+    public function classGroupFor(string $academicYear, int $semester)
+    {
+        return $this->classGroups()
+            ->wherePivot('academic_year', $academicYear)
+            ->wherePivot('semester', $semester)
+            ->first();
     }
 }

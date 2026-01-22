@@ -32,7 +32,12 @@ use App\Http\Controllers\Api\AdminAttendanceController;
 use App\Http\Controllers\Api\AdminScheduleController;
 use App\Http\Controllers\Api\ClassGroupController;
 
+use App\Http\Controllers\Api\MajorCapacityController;
+use App\Http\Controllers\Api\MajorQuotaController;
+
 use App\Http\Controllers\Api\TeacherController;
+
+use App\Http\Controllers\Api\StudentClassGroupController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -51,6 +56,19 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register/save', [RegistrationController::class, 'store']); // student self-register
 Route::post('/registrations/{id}/pay-later', [RegistrationController::class, 'payLater']);
 
+Route::get('/majors/{id}/capacity', [MajorCapacityController::class, 'show']);
+Route::get('/major-quotas', [MajorQuotaController::class, 'index']);
+Route::post('/major-quotas', [MajorQuotaController::class, 'store']);
+Route::put('/major-quotas/{id}', [MajorQuotaController::class, 'update']);
+Route::delete('/major-quotas/{id}', [MajorQuotaController::class, 'destroy']);
+
+
+
+Route::prefix('students')->group(function () {
+    Route::get('{studentId}/class-group', [StudentClassGroupController::class, 'show']);
+    Route::post('{studentId}/class-group/assign', [StudentClassGroupController::class, 'assignManual']);
+    Route::post('{studentId}/class-group/auto', [StudentClassGroupController::class, 'assignAuto']);
+});
 /*
 |--------------------------------------------------------------------------
 | PUBLIC READ DATA (NO LOGIN REQUIRED)

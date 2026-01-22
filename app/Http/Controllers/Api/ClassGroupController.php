@@ -40,9 +40,10 @@ class ClassGroupController extends Controller
             'class_name'    => 'required|string|max:100',
             'major_id'      => 'required|exists:majors,id',
             'academic_year' => 'required|string|regex:/^\d{4}-\d{4}$/',
-            'semester'      => 'required|integer|min:1|max:3',
+            'semester' => 'required|integer|in:1,2',
             'shift'         => 'nullable|string|max:50',
-            'capacity'      => 'nullable|integer|min:1|max:5000',
+           'capacity' => 'required|integer|min:10|max:120',
+
         ]);
 
         // prevent duplicate group name in same major/year/semester/shift
@@ -89,11 +90,12 @@ class ClassGroupController extends Controller
             'class_name'    => 'required|string|max:100',
             'major_id'      => 'required|exists:majors,id',
             'academic_year' => 'required|string|regex:/^\d{4}-\d{4}$/',
-            'semester'      => 'required|integer|min:1|max:3',
+            'semester' => 'required|integer|in:1,2',
             'shift'         => 'nullable|string|max:50',
-            'capacity'      => 'nullable|integer|min:1|max:5000',
-        ]);
+            'capacity' => 'required|integer|min:10|max:120',
 
+        ]);
+         
         $exists = ClassGroup::where('id', '!=', $row->id)
             ->where('major_id', (int)$validated['major_id'])
             ->where('academic_year', (string)$validated['academic_year'])
