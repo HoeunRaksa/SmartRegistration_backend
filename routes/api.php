@@ -62,12 +62,13 @@ Route::post('/major-quotas', [MajorQuotaController::class, 'store']);
 Route::put('/major-quotas/{id}', [MajorQuotaController::class, 'update']);
 Route::delete('/major-quotas/{id}', [MajorQuotaController::class, 'destroy']);
 
-
+Route::get('class-groups/{classGroupId}/students', [StudentClassGroupController::class, 'classStudents']);
 
 Route::prefix('students')->group(function () {
     Route::get('{studentId}/class-group', [StudentClassGroupController::class, 'show']);
     Route::post('{studentId}/class-group/assign', [StudentClassGroupController::class, 'assignManual']);
     Route::post('{studentId}/class-group/auto', [StudentClassGroupController::class, 'assignAuto']);
+   
 });
 /*
 |--------------------------------------------------------------------------

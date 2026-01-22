@@ -221,4 +221,70 @@ class StudentClassGroupController extends Controller
             ], 500);
         }
     }
+    /**
+ * GET /api/class-groups/{classGroupId}/students?academic_year=2026-2027&semester=1
+ * List students in a class group for a specific period
+ */
+public function classStudents($classGroupId, Request $request)
+{
+    $academicYear = (string) $request->query('academic_year', '');
+    $semester = (int) $request->query('semester', 1);
+    $semester = in_array($semester, [1, 2], true) ? $semester : 1;
+
+    if ($academicYear === '') {
+        return response()->json([
+            'success' => false,
+            'message' => 'academic_year is required (e.g. 2026-2027)',
+        ], 422);
+    }
+
+    // ensure class group exists
+    $classGroup = ClassGroup::findOrFail((int)$classGroupId);
+
+    // safety: must match same period
+    if ((string)$classGroup->academic_year !== (string)$academicYear
+        || (int)$classGroup->semester !== (int)$semester
+    ) {
+        return response()->json([
+            'success' => false,
+            'message' => 'This class group is not in the requested academic_year/semester.',
+            'debug' => [
+                'group_academic_year' => (string)$classGroup->academic_year,
+                'group_semester' => (int)$classGroup->semester,
+                'request_academic_year' => (string)$academicYear,
+                'request_semester' => (int)$semester,
+            ],
+        ], 409);
+    }
+
+    $rows = DB::table('student_class_groups as scg')
+        ->join('students as s', 's.id', '=', 'scg.student_id')
+        ->leftJoin('users as u', 'u.id', '=', 's.user_id') // if you have
+        ->where('scg.class_group_id', (int)$classGroupId)
+        ->where('scg.academic_year', $academicYear)
+        ->where('scg.semester', $semester)
+        ->select(
+            'scg.id as student_class_group_id',
+            'scg.student_id',
+            'scg.class_group_id',
+            'scg.academic_year',
+            'scg.semester',
+
+            's.student_code',
+            's.full_name_en',
+            's.full_name_kh',
+            's.gender',
+            's.phone_number',
+
+            DB::raw('COALESCE(u.email, NULL) as email')
+        )
+        ->orderByDesc('s.id')
+        ->get();
+
+    return response()->json([
+        'success' => true,
+        'data' => $rows,
+    ]);
+}
+
 }

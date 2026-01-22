@@ -12,12 +12,6 @@ use App\Models\Major;
 
 class PaymentController extends Controller
 {
-    /* ============================================================
-     * ✅ FIX 1: generateQr saves tran_id to correct period row
-     * ✅ FIX 2: callback updates SAP even if tran_id not found (fallback parse)
-     * ✅ FIX 3: support pay plan: SEMESTER = 50% fee, YEAR = 100% fee
-     * ============================================================ */
-
     private function normalizeSemester($semester): int
     {
         $s = (int) ($semester ?? 1);
@@ -52,7 +46,7 @@ class PaymentController extends Controller
             ->where(function ($q) use ($email, $phone) {
                 if (!empty($email)) {
                     $q->where('users.email', $email)
-                      ->orWhere('registrations.personal_email', $email);
+                        ->orWhere('registrations.personal_email', $email);
                 }
                 if (!empty($phone)) {
                     $q->orWhere('registrations.phone_number', $phone);
@@ -63,24 +57,46 @@ class PaymentController extends Controller
             ->first();
     }
 
-    private function upsertAcademicPeriodSafe(int $studentId, string $academicYear, int $semester, array $data): void
+    private function assertMajorCanPayOrFail(int $majorId, string $academicYear): void
     {
-        $updated = DB::table('student_academic_periods')
-            ->where('student_id', $studentId)
+        $quota = DB::table('major_quotas')
+            ->where('major_id', $majorId)
             ->where('academic_year', $academicYear)
-            ->where('semester', $semester)
-            ->update(array_merge($data, ['updated_at' => now()]));
+            ->lockForUpdate()
+            ->first();
 
-        if ($updated === 0) {
-            DB::table('student_academic_periods')->insert(array_merge([
-                'student_id' => $studentId,
-                'academic_year' => $academicYear,
-                'semester' => $semester,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ], $data));
+        // No quota row => unlimited
+        if (!$quota) return;
+
+        $now = now();
+
+        // optional open/close window
+        if (!empty($quota->opens_at) && $now->lt($quota->opens_at)) {
+            throw new \RuntimeException('PAYMENT_NOT_OPEN');
+        }
+
+        if (!empty($quota->closes_at) && $now->gt($quota->closes_at)) {
+            throw new \RuntimeException('PAYMENT_CLOSED');
+        }
+
+        $limit = (int) ($quota->limit ?? 0);
+        if ($limit <= 0) return; // treat <=0 as unlimited
+
+        // Count PAID seats (distinct students) for that major + academic year
+        $paidCount = (int) DB::table('student_academic_periods as sap')
+            ->join('students as s', 's.id', '=', 'sap.student_id')
+            ->join('registrations as r', 'r.id', '=', 's.registration_id')
+            ->where('r.major_id', $majorId)
+            ->where('sap.academic_year', $academicYear)
+            ->where('sap.payment_status', 'PAID')
+            ->distinct('sap.student_id')
+            ->count('sap.student_id');
+
+        if ($paidCount >= $limit) {
+            throw new \RuntimeException('MAJOR_FULL');
         }
     }
+
 
     private function ensureAcademicPeriodNoReset(int $studentId, string $academicYear, int $semester, float $tuitionAmount): void
     {
@@ -139,6 +155,7 @@ class PaymentController extends Controller
 
         return $out;
     }
+
 
     public function generateQr(Request $request)
     {
@@ -405,6 +422,7 @@ class PaymentController extends Controller
 
         $status = ($code === '0') ? 'PAID' : 'FAILED';
 
+        // Always upsert transaction log (external event log)
         DB::table('payment_transactions')->updateOrInsert(
             ['tran_id' => $tranId],
             [
@@ -414,10 +432,15 @@ class PaymentController extends Controller
             ]
         );
 
+        // If FAILED, do nothing else (keep 200)
+        if ($status !== 'PAID') {
+            return response()->json(['ack' => 'ok']);
+        }
+
         try {
             DB::beginTransaction();
 
-            // 1) Best: find by tran_id in SAP
+            // 1) Locate periods (best: by tran_id)
             $periods = collect();
 
             if (Schema::hasColumn('student_academic_periods', 'tran_id')) {
@@ -427,10 +450,15 @@ class PaymentController extends Controller
             }
 
             // 2) Fallback: parse tranId to locate student+year+semester
+            $reg = null;
+            $student = null;
+
             if ($periods->count() === 0) {
                 $parsed = $this->parseTranId($tranId);
+
                 if (!empty($parsed['registration_id'])) {
-                    $reg = DB::table('registrations')->where('id', $parsed['registration_id'])->first();
+                    $reg = DB::table('registrations')->where('id', (int)$parsed['registration_id'])->first();
+
                     if ($reg) {
                         $student = $this->findStudentByRegistrationOrContact(
                             (int) $reg->id,
@@ -457,26 +485,77 @@ class PaymentController extends Controller
                 }
             }
 
-            // Update periods
-            if ($periods->count() > 0) {
-                foreach ($periods as $p) {
-                    $upd = [
-                        'payment_status' => $status,
-                        'updated_at' => now(),
-                    ];
-                    if ($status === 'PAID') $upd['paid_at'] = now();
+            // If still no periods found: nothing to update, but keep 200
+            if ($periods->count() === 0) {
+                DB::commit();
+                return response()->json(['ack' => 'ok']);
+            }
 
-                    DB::table('student_academic_periods')->where('id', $p->id)->update($upd);
+            // Determine major_id + academic_year (for quota check)
+            // Prefer from registration (if we already got it)
+            $majorId = null;
+            $academicYear = null;
 
-                    // upgrade role on PAID
-                    if ($status === 'PAID') {
-                        $studentRow = DB::table('students')->where('id', $p->student_id)->first();
-                        if ($studentRow) {
-                            User::where('id', $studentRow->user_id)
-                                ->where('role', 'register')
-                                ->update(['role' => 'student']);
-                        }
+            if ($reg) {
+                $majorId = (int) ($reg->major_id ?? 0);
+                $academicYear = (string) ($reg->academic_year ?? '');
+            } else {
+                // derive from first period -> student -> registration
+                $first = $periods->first();
+                $studentRow = DB::table('students')->where('id', (int)$first->student_id)->first();
+
+                if ($studentRow) {
+                    $reg = DB::table('registrations')->where('id', (int)$studentRow->registration_id)->first();
+                    if ($reg) {
+                        $majorId = (int) ($reg->major_id ?? 0);
+                        $academicYear = (string) ($reg->academic_year ?? '');
                     }
+                }
+            }
+
+            // ✅ QUOTA CHECK (only when PAID)
+            if (!empty($majorId) && !empty($academicYear)) {
+                try {
+                    $this->assertMajorCanPayOrFail((int)$majorId, (string)$academicYear);
+                } catch (\RuntimeException $ex) {
+                    $reason = $ex->getMessage(); // MAJOR_FULL / PAYMENT_NOT_OPEN / PAYMENT_CLOSED
+
+                    // Mark transaction for admin visibility, but DO NOT mark student paid
+                    DB::table('payment_transactions')->where('tran_id', $tranId)->update([
+                        'status' => $reason === 'MAJOR_FULL' ? 'REJECTED_FULL' : 'REJECTED',
+                        'updated_at' => now(),
+                    ]);
+
+                    DB::commit();
+
+                    Log::warning('Payment rejected by quota/window', [
+                        'tran_id' => $tranId,
+                        'reason' => $reason,
+                        'major_id' => $majorId,
+                        'academic_year' => $academicYear,
+                    ]);
+
+                    return response()->json(['ack' => 'ok']); // ABA must get 200
+                }
+            }
+
+            // ✅ Update periods to PAID (idempotent)
+            foreach ($periods as $p) {
+                $alreadyPaid = strtoupper((string)($p->payment_status ?? '')) === 'PAID';
+                if ($alreadyPaid) continue;
+
+                DB::table('student_academic_periods')->where('id', $p->id)->update([
+                    'payment_status' => 'PAID',
+                    'paid_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // upgrade role
+                $studentRow = DB::table('students')->where('id', (int)$p->student_id)->first();
+                if ($studentRow) {
+                    User::where('id', $studentRow->user_id)
+                        ->where('role', 'register')
+                        ->update(['role' => 'student']);
                 }
             }
 

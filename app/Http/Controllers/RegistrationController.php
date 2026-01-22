@@ -63,69 +63,123 @@ class RegistrationController extends Controller
             ->first();
     }
 
-private function assertMajorCanRegisterOrFail(int $majorId, string $academicYear): void
-{
-    $quota = DB::table('major_quotas')
-        ->where('major_id', $majorId)
-        ->where('academic_year', $academicYear)
-        ->lockForUpdate() // ✅ must be called inside an active transaction
-        ->first();
+    private function assertMajorCanRegisterOrFail(int $majorId, string $academicYear): void
+    {
+        $quota = DB::table('major_quotas')
+            ->where('major_id', $majorId)
+            ->where('academic_year', $academicYear)
+            ->lockForUpdate()
+            ->first();
 
-    // If no row => unlimited + always open
-    if (!$quota) {
-        return;
+        if (!$quota) {
+            abort(response()->json([
+                'success' => false,
+                'message' => 'Registration is not configured yet for this major/year. Please try again later.',
+            ], 409));
+        }
+
+        $now = now();
+
+        if (!empty($quota->opens_at) && $now->lt($quota->opens_at)) {
+            abort(response()->json([
+                'success' => false,
+                'message' => 'Registration is not open yet for this major/year.',
+            ], 409));
+        }
+
+        if (!empty($quota->closes_at) && $now->gt($quota->closes_at)) {
+            abort(response()->json([
+                'success' => false,
+                'message' => 'Registration is closed for this major/year.',
+            ], 409));
+        }
+
+        // ✅ capacity check only if limit is set (nullable limit recommended)
+        if ($quota->limit !== null) {
+            $limit = (int) $quota->limit;
+
+            $used = (int) DB::table('registrations')
+                ->where('major_id', $majorId)
+                ->where('academic_year', $academicYear)
+                ->lockForUpdate()
+                ->count();
+
+            if ($used >= $limit) {
+                abort(response()->json([
+                    'success' => false,
+                    'message' => 'This major is full for this academic year. Please choose another major.',
+                ], 409));
+            }
+        }
     }
 
-    $now = now();
+    private function assertMajorCanPayOrFail(
+        int $majorId,
+        string $academicYear,
+        int $registrationId
+    ): void {
+        $quota = DB::table('major_quotas')
+            ->where('major_id', $majorId)
+            ->where('academic_year', $academicYear)
+            ->lockForUpdate()
+            ->first();
 
-    $opensAt  = !empty($quota->opens_at)  ? Carbon::parse($quota->opens_at)  : null;
-    $closesAt = !empty($quota->closes_at) ? Carbon::parse($quota->closes_at) : null;
+        // If no quota config => allow payment (unlimited paid seats)
+        if (!$quota) return;
 
-    if ($opensAt && $now->lt($opensAt)) {
-        throw new HttpResponseException(response()->json([
-            'success' => false,
-            'message' => 'Registration is not open yet for this major/year.',
-            'debug' => [
-                'opens_at' => $quota->opens_at,
-                'closes_at' => $quota->closes_at,
-            ]
-        ], 409));
+        $now = now();
+
+        /* ===========================
+       ⏰ PAYMENT DEADLINE CHECK
+       =========================== */
+        $deadlineDays = (int) ($quota->pay_deadline_days ?? 7);
+
+        if ($deadlineDays > 0) {
+            $reg = DB::table('registrations')
+                ->where('id', $registrationId)
+                ->lockForUpdate()
+                ->first();
+
+            if ($reg) {
+                $expiredAt = \Carbon\Carbon::parse($reg->created_at)->addDays($deadlineDays);
+                if ($now->gt($expiredAt)) {
+                    abort(response()->json([
+                        'success' => false,
+                        'message' => 'Payment deadline has passed. Please register again.',
+                        'debug' => ['expired_at' => $expiredAt],
+                    ], 409));
+                }
+            }
+        }
+
+        /* ===========================
+       💰 PAID SEAT LIMIT CHECK
+       =========================== */
+        $paidLimit = (int) ($quota->paid_limit ?? 0);
+
+        if ($paidLimit > 0) {
+            $paidCount = (int) DB::table('student_academic_periods as sap')
+                ->join('students as s', 's.id', '=', 'sap.student_id')
+                ->join('registrations as r', 'r.id', '=', 's.registration_id')
+                ->where('r.major_id', $majorId)
+                ->where('sap.academic_year', $academicYear)
+                ->whereRaw('UPPER(sap.payment_status) = "PAID"')
+                ->count();
+
+            if ($paidCount >= $paidLimit) {
+                abort(response()->json([
+                    'success' => false,
+                    'message' => 'This major is full. Paid seats are no longer available.',
+                    'debug' => [
+                        'paid_limit' => $paidLimit,
+                        'paid_count' => $paidCount,
+                    ],
+                ], 409));
+            }
+        }
     }
 
-    if ($closesAt && $now->gt($closesAt)) {
-        throw new HttpResponseException(response()->json([
-            'success' => false,
-            'message' => 'Registration is closed for this major/year.',
-            'debug' => [
-                'opens_at' => $quota->opens_at,
-                'closes_at' => $quota->closes_at,
-            ]
-        ], 409));
-    }
 
-    $limit = (int) ($quota->limit ?? 0);
-
-    // If limit <= 0 => treat as unlimited (optional rule)
-    if ($limit <= 0) {
-        return;
-    }
-
-    $used = (int) DB::table('registrations')
-        ->where('major_id', $majorId)
-        ->where('academic_year', $academicYear)
-        ->count();
-
-    if ($used >= $limit) {
-        throw new HttpResponseException(response()->json([
-            'success' => false,
-            'message' => 'This major is full for this academic year. Please choose another major.',
-            'debug' => [
-                'limit' => $limit,
-                'used' => $used,
-            ]
-        ], 409));
-    }
-}
 
     /**
      * ✅ Ensure period exists WITHOUT overwriting paid status
@@ -430,12 +484,6 @@ private function assertMajorCanRegisterOrFail(int $majorId, string $academicYear
         }
     }
 
-    /**
-     * ✅ FIXED INDEX:
-     * - no OR join
-     * - student_id resolved by COALESCE(s_by_reg, s_by_user)
-     * - sap joins correctly => paid won't show pending
-     */
     public function index(Request $request)
     {
         $semester = $this->normalizeSemester($request->input('semester', 1));
@@ -598,6 +646,12 @@ private function assertMajorCanRegisterOrFail(int $majorId, string $academicYear
                     'message' => 'Registration academic_year is missing'
                 ], 422);
             }
+
+            $this->assertMajorCanPayOrFail(
+                (int) $registration->major_id,
+                (string) $registration->academic_year,
+                (int) $registration->id
+            );
 
             // ✅ Upsert PAID into student_academic_periods (NEW SOURCE OF TRUTH)
             $this->upsertAcademicPeriodNoCreatedAtOverwrite(
