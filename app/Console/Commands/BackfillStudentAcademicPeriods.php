@@ -8,13 +8,13 @@ use Illuminate\Support\Facades\Schema;
 
 class BackfillStudentAcademicPeriods extends Command
 {
-    protected $signature = 'backfill:student-periods {--semester=1} {--status=ACTIVE}';
-    protected $description = 'Backfill student_academic_periods from existing students + registrations (safe, idempotent).';
+    protected $signature = 'backfill:student-periods {--semester=1} {--status=ACTIVE} {--dry-run}';
+    protected $description = 'Backfill student_academic_periods from registrations (supports old+new flow).';
 
     public function handle()
     {
-        $semester = (int) $this->option('semester');
-        if (!in_array($semester, [1, 2], true)) {
+        $defaultSemester = (int) $this->option('semester');
+        if (!in_array($defaultSemester, [1, 2], true)) {
             $this->error("Invalid --semester value. Allowed: 1 or 2");
             return Command::FAILURE;
         }
@@ -25,102 +25,109 @@ class BackfillStudentAcademicPeriods extends Command
             return Command::FAILURE;
         }
 
-        $this->info("== Backfill student_academic_periods ==");
-        $this->info("semester={$semester}, status={$status}");
-
-        // Ensure table exists
         if (!DB::getSchemaBuilder()->hasTable('student_academic_periods')) {
             $this->error("Table 'student_academic_periods' not found. Run migration first.");
             return Command::FAILURE;
         }
 
-        $hasAmount = Schema::hasColumn('registrations', 'payment_amount');
-        $hasStatus = Schema::hasColumn('registrations', 'payment_status');
-        $hasDate   = Schema::hasColumn('registrations', 'payment_date');
+        $hasRegSemester = Schema::hasColumn('registrations', 'semester');
+        $hasPayStatus   = Schema::hasColumn('registrations', 'payment_status');
+        $hasPayDate     = Schema::hasColumn('registrations', 'payment_date');
+        $hasPayAmount   = Schema::hasColumn('registrations', 'payment_amount');
 
-        $rows = DB::table('students')
-            ->join('registrations', 'students.registration_id', '=', 'registrations.id')
-            ->select(
-                'students.id as student_id',
-                'registrations.academic_year',
-                DB::raw($hasAmount ? 'registrations.payment_amount as payment_amount' : '0 as payment_amount'),
-                DB::raw($hasStatus ? 'registrations.payment_status as payment_status' : "'PENDING' as payment_status"),
-                DB::raw($hasDate ? 'registrations.payment_date as payment_date' : 'NULL as payment_date')
-            )
-            ->orderBy('students.id')
-            ->get();
+        $dryRun = (bool) $this->option('dry-run');
+
+        $this->info("== Backfill student_academic_periods ==");
+        $this->info("defaultSemester={$defaultSemester}, status={$status}, dryRun=" . ($dryRun ? 'YES' : 'NO'));
 
         $created = 0;
+        $updated = 0;
         $skipped = 0;
-        $errors  = 0;
 
-        DB::beginTransaction();
-        try {
-            foreach ($rows as $r) {
-
-                // academic_year required (your registration controller requires it now)
-                $academicYear = trim((string) ($r->academic_year ?? ''));
-                if ($academicYear === '') {
-                    $skipped++;
-                    continue;
-                }
-
-                // Normalize payment status
-                $paymentStatus = strtoupper((string) ($r->payment_status ?? 'PENDING'));
-                if (!in_array($paymentStatus, ['PENDING', 'PAID', 'PARTIAL'], true)) {
-                    // map old values if any
-                    if (in_array($paymentStatus, ['SUCCESS', 'DONE', 'COMPLETED'], true)) {
-                        $paymentStatus = 'PAID';
-                    } else {
-                        $paymentStatus = 'PENDING';
+        DB::table('registrations')
+            ->leftJoin('users', 'users.email', '=', 'registrations.personal_email')
+            ->leftJoin('students', function ($join) {
+                $join->on('students.registration_id', '=', 'registrations.id')
+                     ->orOn('students.user_id', '=', 'users.id');
+            })
+            ->leftJoin('majors', 'majors.id', '=', 'registrations.major_id')
+            ->select(
+                'registrations.id as registration_id',
+                'registrations.academic_year',
+                $hasRegSemester ? 'registrations.semester as reg_semester' : DB::raw('NULL as reg_semester'),
+                $hasPayStatus ? 'registrations.payment_status as reg_payment_status' : DB::raw("'PENDING' as reg_payment_status"),
+                $hasPayDate ? 'registrations.payment_date as reg_payment_date' : DB::raw('NULL as reg_payment_date'),
+                $hasPayAmount ? 'registrations.payment_amount as reg_payment_amount' : DB::raw('NULL as reg_payment_amount'),
+                'students.id as student_id',
+                'majors.registration_fee as major_fee'
+            )
+            ->whereNotNull('students.id') // must map to a student
+            ->orderBy('registrations.id')
+            ->chunkById(500, function ($rows) use (
+                $defaultSemester, $status, $dryRun,
+                &$created, &$updated, &$skipped
+            ) {
+                foreach ($rows as $r) {
+                    $academicYear = trim((string) ($r->academic_year ?? ''));
+                    if ($academicYear === '') {
+                        $skipped++;
+                        continue;
                     }
+
+                    // semester: prefer registrations.semester if exists, else default
+                    $semester = (int) ($r->reg_semester ?? $defaultSemester);
+                    if (!in_array($semester, [1, 2], true)) $semester = $defaultSemester;
+
+                    // payment status (old values mapping)
+                    $paymentStatus = strtoupper((string) ($r->reg_payment_status ?? 'PENDING'));
+                    if (in_array($paymentStatus, ['SUCCESS', 'DONE', 'COMPLETED'], true)) $paymentStatus = 'PAID';
+                    if (!in_array($paymentStatus, ['PENDING', 'PAID', 'PARTIAL'], true)) $paymentStatus = 'PENDING';
+
+                    $paidAt = null;
+                    if ($paymentStatus === 'PAID') {
+                        $paidAt = $r->reg_payment_date ?: null;
+                    }
+
+                    // tuition: prefer major fee, else fallback to payment_amount, else 0
+                    $tuition = (float) ($r->major_fee ?? ($r->reg_payment_amount ?? 0));
+
+                    $where = [
+                        'student_id'    => $r->student_id,
+                        'academic_year' => $academicYear,
+                        'semester'      => $semester,
+                    ];
+
+                    $data = [
+                        'status'         => $status,
+                        'tuition_amount' => $tuition,
+                        'payment_status' => $paymentStatus,
+                        'paid_at'        => $paidAt,
+                        'updated_at'     => now(),
+                    ];
+
+                    if ($dryRun) {
+                        // just count as "would write"
+                        $skipped++;
+                        continue;
+                    }
+
+                    // idempotent upsert
+                    $exists = DB::table('student_academic_periods')->where($where)->exists();
+
+                    DB::table('student_academic_periods')->updateOrInsert(
+                        $where,
+                        array_merge($data, $exists ? [] : ['created_at' => now()])
+                    );
+
+                    if ($exists) $updated++;
+                    else $created++;
                 }
-
-                // paid_at only when PAID (or partial if you want; keep safe)
-                $paidAt = null;
-                if ($paymentStatus === 'PAID') {
-                    $paidAt = $r->payment_date ?: null;
-                }
-
-                // Skip if already exists
-                $exists = DB::table('student_academic_periods')
-                    ->where('student_id', $r->student_id)
-                    ->where('academic_year', $academicYear)
-                    ->where('semester', $semester)
-                    ->exists();
-
-                if ($exists) {
-                    $skipped++;
-                    continue;
-                }
-
-                DB::table('student_academic_periods')->insert([
-                    'student_id'     => $r->student_id,
-                    'academic_year'  => $academicYear,
-                    'semester'       => $semester,
-                    'status'         => $status,
-                    'tuition_amount' => $r->payment_amount ?? 0,
-                    'payment_status' => $paymentStatus,
-                    'paid_at'        => $paidAt,
-                    'created_at'     => now(),
-                    'updated_at'     => now(),
-                ]);
-
-                $created++;
-            }
-
-            DB::commit();
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            $errors++;
-            $this->error("Backfill failed: " . $e->getMessage());
-            return Command::FAILURE;
-        }
+            }, 'registrations.id');
 
         $this->info("== DONE ==");
         $this->info("created={$created}");
+        $this->info("updated={$updated}");
         $this->info("skipped={$skipped}");
-        $this->info("errors={$errors}");
 
         return Command::SUCCESS;
     }
