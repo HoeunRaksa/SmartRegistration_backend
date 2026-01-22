@@ -389,46 +389,59 @@ class RegistrationController extends Controller
      * - student_id resolved by COALESCE(s_by_reg, s_by_user)
      * - sap joins correctly => paid won't show pending
      */
-    public function index(Request $request)
-    {
-        $semester = $this->normalizeSemester($request->input('semester', 1));
+ public function index(Request $request)
+{
+    $semester = $this->normalizeSemester($request->input('semester', 1));
 
-        $registrations = DB::table('registrations as r')
-            ->join('departments as d', 'r.department_id', '=', 'd.id')
-            ->join('majors as m', 'r.major_id', '=', 'm.id')
-            ->leftJoin('users as u', 'u.email', '=', 'r.personal_email')
-            ->leftJoin('students as s_by_reg', 's_by_reg.registration_id', '=', 'r.id')
-            ->leftJoin('students as s_by_user', 's_by_user.user_id', '=', 'u.id')
-            ->leftJoin('student_academic_periods as sap', function ($join) use ($semester) {
-                // sap.student_id = COALESCE(s_by_reg.id, s_by_user.id)
-                $join->on(DB::raw('sap.student_id'), '=', DB::raw('COALESCE(s_by_reg.id, s_by_user.id)'))
-                    ->on('sap.academic_year', '=', 'r.academic_year')
-                    ->where('sap.semester', '=', $semester);
-            })
-            ->select(
-                'r.*',
-                'd.name as department_name',
-                'm.major_name',
-                'm.registration_fee',
-                DB::raw('COALESCE(s_by_reg.student_code, s_by_user.student_code) as student_code'),
-                DB::raw('COALESCE(s_by_reg.id, s_by_user.id) as student_id'),
-                DB::raw('COALESCE(sap.payment_status, "PENDING") as period_payment_status'),
-                'sap.paid_at as period_paid_at',
-                'sap.tuition_amount as period_tuition_amount',
-                DB::raw($semester . ' as period_semester')
-            )
-            ->orderBy('r.created_at', 'desc')
-            ->get();
+    // Build a subquery that resolves ONE student_id per registration
+    // Prefer matching by user/email first (new flow), then fallback registration_id (old flow)
+    $registrations = DB::table('registrations as r')
+        ->join('departments as d', 'r.department_id', '=', 'd.id')
+        ->join('majors as m', 'r.major_id', '=', 'm.id')
+        ->leftJoin('users as u', 'u.email', '=', 'r.personal_email')
 
-        $registrations = $registrations->map(function ($reg) {
-            if (!empty($reg->profile_picture_path)) {
-                $reg->profile_picture_url = url($reg->profile_picture_path);
-            }
-            return $reg;
-        });
+        // Prefer student by user_id (new flow)
+        ->leftJoin('students as s_user', 's_user.user_id', '=', 'u.id')
 
-        return response()->json(['success' => true, 'data' => $registrations]);
-    }
+        // Fallback student by registration_id (old flow)
+        ->leftJoin('students as s_reg', 's_reg.registration_id', '=', 'r.id')
+
+        // Join academic period using computed student_id
+        ->leftJoin('student_academic_periods as sap', function ($join) use ($semester) {
+            // Prefer s_user.id first, fallback s_reg.id
+            $join->on('sap.student_id', '=', DB::raw('COALESCE(s_user.id, s_reg.id)'))
+                ->on('sap.academic_year', '=', 'r.academic_year')
+                ->where('sap.semester', '=', $semester);
+        })
+
+        ->select(
+            'r.*',
+            'd.name as department_name',
+            'm.major_name',
+            'm.registration_fee',
+
+            // Prefer code/id from user match first
+            DB::raw('COALESCE(s_user.student_code, s_reg.student_code) as student_code'),
+            DB::raw('COALESCE(s_user.id, s_reg.id) as student_id'),
+
+            DB::raw('COALESCE(sap.payment_status, "PENDING") as period_payment_status'),
+            'sap.paid_at as period_paid_at',
+            'sap.tuition_amount as period_tuition_amount',
+            DB::raw($semester . ' as period_semester')
+        )
+        ->orderByDesc('r.created_at')
+        ->get();
+
+    $registrations = $registrations->map(function ($reg) {
+        if (!empty($reg->profile_picture_path)) {
+            $reg->profile_picture_url = url($reg->profile_picture_path);
+        }
+        return $reg;
+    });
+
+    return response()->json(['success' => true, 'data' => $registrations]);
+}
+
 
     public function payLater($id)
     {
