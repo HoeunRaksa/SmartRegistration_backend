@@ -104,6 +104,12 @@
             @endif
         </div>
 
+        @if(!empty($filters['semester']))
+        <div class="info-row">
+            <span class="info-label">Semester:</span> Sem {{ $filters['semester'] }}
+        </div>
+        @endif
+
         @if(!empty($filters['academic_year']))
         <div class="info-row">
             <span class="info-label">Academic Year:</span> {{ $filters['academic_year'] }}
@@ -125,6 +131,18 @@
         @if(!empty($filters['payment_status']))
         <div class="info-row">
             <span class="info-label">Payment Status:</span> {{ $filters['payment_status'] }}
+        </div>
+        @endif
+
+        @if(!empty($filters['shift']))
+        <div class="info-row">
+            <span class="info-label">Shift:</span> {{ $filters['shift'] }}
+        </div>
+        @endif
+
+        @if(!empty($filters['gender']))
+        <div class="info-row">
+            <span class="info-label">Gender:</span> {{ $filters['gender'] }}
         </div>
         @endif
     </div>
@@ -152,23 +170,36 @@
         <thead>
             <tr>
                 <th style="width: 3%;">#</th>
-                <th style="width: 12%;">Student Code</th>
-                <th style="width: 18%;">Full Name</th>
+                <th style="width: 10%;">Student Code</th>
+                <th style="width: 16%;">Full Name</th>
                 <th style="width: 5%;">Gender</th>
-                <th style="width: 15%;">Department</th>
-                <th style="width: 15%;">Major</th>
-                <th style="width: 8%;">Shift</th>
+                <th style="width: 13%;">Department</th>
+                <th style="width: 13%;">Major</th>
+                <th style="width: 7%;">Shift</th>
+                <th style="width: 10%;">Academic Year</th>
+                <th style="width: 6%;">Semester</th>
                 <th style="width: 10%;">Payment</th>
-                <th style="width: 8%;" class="text-right">Amount</th>
+                <th style="width: 7%;" class="text-right">Amount</th>
                 <th style="width: 10%;">Date</th>
             </tr>
         </thead>
         <tbody>
             @foreach($registrations as $index => $reg)
                 @php
-                    $statusRaw = $reg->payment_status ?? '';
+                    /**
+                     * ✅ IMPORTANT:
+                     * Use period fields when controller joined per-semester payment table.
+                     * Fallback to old fields if period not present.
+                     */
+                    $statusRaw = $reg->period_payment_status ?? ($reg->payment_status ?? '');
                     $status = strtoupper(trim($statusRaw));
-                    if ($status === '') { $status = 'PENDING'; }
+
+                    $amountRaw = $reg->period_tuition_amount ?? ($reg->payment_amount ?? 0);
+                    $amount = (float)($amountRaw ?? 0);
+
+                    // Semester + academic year to show clearly which one is pending/paid
+                    $year = $reg->period_academic_year ?? ($reg->academic_year ?? null);
+                    $sem = $reg->period_semester ?? ($filters['semester'] ?? null);
 
                     $badgeClass = match ($status) {
                         'PENDING' => 'badge-pending',
@@ -182,7 +213,15 @@
                     $gender = ucfirst(strtolower(trim($genderRaw)));
                     $genderBadge = ($gender === 'Male') ? 'badge-male' : (($gender === 'Female') ? 'badge-female' : 'badge-unknown');
 
-                    $amount = $reg->payment_amount ?? 0;
+                    // Nice readable payment label
+                    $suffixParts = [];
+                    if (!empty($year)) $suffixParts[] = $year;
+                    if (!empty($sem)) $suffixParts[] = 'Sem ' . $sem;
+                    $suffix = implode(' • ', $suffixParts);
+
+                    $paymentLabel = in_array($status, ['PAID', 'COMPLETED'])
+                        ? ('PAID' . ($suffix ? ' (' . $suffix . ')' : ''))
+                        : ('PENDING' . ($suffix ? ' (' . $suffix . ')' : ''));
                 @endphp
 
                 <tr>
@@ -195,10 +234,12 @@
                     <td>{{ $reg->department->name ?? 'N/A' }}</td>
                     <td>{{ $reg->major->major_name ?? 'N/A' }}</td>
                     <td>{{ $reg->shift ?? '-' }}</td>
+                    <td>{{ $year ?? 'N/A' }}</td>
+                    <td>{{ $sem ? 'Sem ' . $sem : 'N/A' }}</td>
                     <td>
-                        <span class="badge {{ $badgeClass }}">{{ $status ?: 'N/A' }}</span>
+                        <span class="badge {{ $badgeClass }}">{{ $paymentLabel }}</span>
                     </td>
-                    <td class="text-right">${{ number_format((float)$amount, 2) }}</td>
+                    <td class="text-right">${{ number_format($amount, 2) }}</td>
                     <td>{{ $reg->created_at ? \Carbon\Carbon::parse($reg->created_at)->format('Y-m-d') : 'N/A' }}</td>
                 </tr>
             @endforeach
