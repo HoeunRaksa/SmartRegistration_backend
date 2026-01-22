@@ -106,28 +106,76 @@ class RegistrationController extends Controller
         );
     }
 
+    /**
+     * ✅ Helper: set column if exists (prevents crash if DB column missing)
+     */
+    private function putIfColumnExists(array &$data, string $table, string $column, $value): void
+    {
+        if (Schema::hasColumn($table, $column)) {
+            $data[$column] = $value;
+        }
+    }
+
     public function store(Request $request)
     {
         Log::info('Registration request received');
 
         /**
-         * ✅ IMPORTANT (fast + safe):
-         * - personal_email must be required because you create User account login by email.
-         * - phone is optional.
+         * ✅ VALIDATE ALL FIELDS you might insert (FULL)
+         * - If any of these columns are NOT NULL in DB, they must be provided or nullable in DB.
          */
         $validated = $request->validate([
+            // required
             'first_name' => 'required|string|max:255',
             'last_name'  => 'required|string|max:255',
-            'full_name_kh' => 'nullable|string|max:255',
-            'full_name_en' => 'nullable|string|max:255',
-            'gender' => 'required|string',
+            'gender' => 'required|string|max:50',
             'date_of_birth' => 'required|date',
             'personal_email' => 'required|email|max:255',
-            'phone_number' => 'nullable|string|max:20',
             'department_id' => 'required|exists:departments,id',
             'major_id' => 'required|exists:majors,id',
             'academic_year' => 'required|string|max:20',
+
+            // important required for your DB error
+            'high_school_name' => 'required|string|max:255',
+
+            // optional personal
+            'full_name_kh' => 'nullable|string|max:255',
+            'full_name_en' => 'nullable|string|max:255',
+            'phone_number' => 'nullable|string|max:20',
+            'shift' => 'nullable|string|max:50',
+            'batch' => 'nullable|string|max:50',
+            'faculty' => 'nullable|string|max:255',
             'semester' => 'nullable|integer|in:1,2',
+
+            // optional school
+            'graduation_year' => 'nullable|string|max:10',
+            'grade12_result' => 'nullable|string|max:50',
+
+            // optional address
+            'address' => 'nullable|string|max:255',
+            'current_address' => 'nullable|string|max:255',
+
+            // optional father
+            'father_name' => 'nullable|string|max:255',
+            'fathers_date_of_birth' => 'nullable|date',
+            'fathers_nationality' => 'nullable|string|max:100',
+            'fathers_job' => 'nullable|string|max:255',
+            'fathers_phone_number' => 'nullable|string|max:20',
+
+            // optional mother
+            'mother_name' => 'nullable|string|max:255',
+            'mother_date_of_birth' => 'nullable|date',
+            'mother_nationality' => 'nullable|string|max:100',
+            'mothers_job' => 'nullable|string|max:255',
+            'mother_phone_number' => 'nullable|string|max:20',
+
+            // optional guardian/emergency
+            'guardian_name' => 'nullable|string|max:255',
+            'guardian_phone_number' => 'nullable|string|max:20',
+            'emergency_contact_name' => 'nullable|string|max:255',
+            'emergency_contact_phone_number' => 'nullable|string|max:20',
+
+            // optional file
             'profile_picture' => 'nullable|file|mimes:jpeg,jpg,png|max:5120',
         ]);
 
@@ -145,17 +193,14 @@ class RegistrationController extends Controller
 
         /**
          * ✅ If student already exists (ANY year), do NOT create a new user/student again.
-         * We locate by email/phone in users/registrations.
          */
         $existingStudent = DB::table('students')
             ->leftJoin('users', 'students.user_id', '=', 'users.id')
             ->leftJoin('registrations', 'students.registration_id', '=', 'registrations.id')
             ->where(function ($q) use ($validated) {
-                // email is required so always match by email
                 $q->where('users.email', $validated['personal_email'])
-                  ->orWhere('registrations.personal_email', $validated['personal_email']);
+                    ->orWhere('registrations.personal_email', $validated['personal_email']);
 
-                // optional phone secondary match
                 if (!empty($validated['phone_number'])) {
                     $q->orWhere('registrations.phone_number', $validated['phone_number']);
                 }
@@ -172,7 +217,6 @@ class RegistrationController extends Controller
         /**
          * ✅ NEW FLOW CHECK:
          * If student exists AND already PAID for this academic_year+semester => block.
-         * If not paid => continue payment (return existing or create new registration row).
          */
         if ($existingStudent) {
             $period = DB::table('student_academic_periods')
@@ -208,30 +252,57 @@ class RegistrationController extends Controller
             }
 
             /**
-             * ✅ Always create a registration row for the selected academic_year
-             * (even returning students) — so admin can track each year.
+             * ✅ FULL registration row (put everything)
+             * We also guard with Schema::hasColumn so you can evolve DB safely.
              */
             $regData = [
-                'first_name' => $request->first_name,
-                'last_name' => $request->last_name,
+                'first_name' => $validated['first_name'],
+                'last_name' => $validated['last_name'],
                 'full_name_kh' => $fullNameKh,
                 'full_name_en' => $fullNameEn,
-                'gender' => $request->gender,
-                'date_of_birth' => $request->date_of_birth,
-                'phone_number' => $request->phone_number,
-                'personal_email' => $request->personal_email,
-                'department_id' => $request->department_id,
-                'major_id' => $request->major_id,
-                'academic_year' => $request->academic_year,
+                'gender' => $validated['gender'],
+                'date_of_birth' => $validated['date_of_birth'],
+                'phone_number' => $validated['phone_number'] ?? null,
+                'personal_email' => $validated['personal_email'],
+                'department_id' => $validated['department_id'],
+                'major_id' => $validated['major_id'],
+                'academic_year' => $validated['academic_year'],
                 'profile_picture_path' => $profilePicturePath,
                 'created_at' => now(),
                 'updated_at' => now(),
             ];
 
-            // only write semester into registrations if column exists (safe for your DB)
-            if (Schema::hasColumn('registrations', 'semester')) {
-                $regData['semester'] = $semester;
-            }
+            // REQUIRED per your DB
+            $this->putIfColumnExists($regData, 'registrations', 'high_school_name', $validated['high_school_name']);
+
+            // optional columns (safe)
+            $this->putIfColumnExists($regData, 'registrations', 'graduation_year', $validated['graduation_year'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'grade12_result', $validated['grade12_result'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'faculty', $validated['faculty'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'shift', $validated['shift'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'batch', $validated['batch'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'address', $validated['address'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'current_address', $validated['current_address'] ?? null);
+
+            $this->putIfColumnExists($regData, 'registrations', 'father_name', $validated['father_name'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'fathers_date_of_birth', $validated['fathers_date_of_birth'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'fathers_nationality', $validated['fathers_nationality'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'fathers_job', $validated['fathers_job'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'fathers_phone_number', $validated['fathers_phone_number'] ?? null);
+
+            $this->putIfColumnExists($regData, 'registrations', 'mother_name', $validated['mother_name'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'mother_date_of_birth', $validated['mother_date_of_birth'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'mother_nationality', $validated['mother_nationality'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'mothers_job', $validated['mothers_job'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'mother_phone_number', $validated['mother_phone_number'] ?? null);
+
+            $this->putIfColumnExists($regData, 'registrations', 'guardian_name', $validated['guardian_name'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'guardian_phone_number', $validated['guardian_phone_number'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'emergency_contact_name', $validated['emergency_contact_name'] ?? null);
+            $this->putIfColumnExists($regData, 'registrations', 'emergency_contact_phone_number', $validated['emergency_contact_phone_number'] ?? null);
+
+            // semester column optional
+            $this->putIfColumnExists($regData, 'registrations', 'semester', $semester);
 
             $registrationId = DB::table('registrations')->insertGetId($regData);
 
@@ -239,17 +310,15 @@ class RegistrationController extends Controller
              * ✅ Returning student path
              */
             if ($existingStudent) {
-                // update profile picture on existing user if uploaded
                 if ($profilePicturePath && !empty($existingStudent->user_id)) {
                     User::where('id', $existingStudent->user_id)->update([
                         'profile_picture_path' => $profilePicturePath
                     ]);
                 }
 
-                // ensure academic period exists
                 $this->ensureAcademicPeriod(
                     (int) $existingStudent->student_id,
-                    (string) $request->academic_year,
+                    (string) $validated['academic_year'],
                     (int) $semester,
                     (float) $tuition
                 );
@@ -263,13 +332,13 @@ class RegistrationController extends Controller
                         'registration_id' => $registrationId,
                         'student_id' => $existingStudent->student_id,
                         'student_code' => $existingStudent->student_code,
-                        'academic_year' => $request->academic_year,
+                        'academic_year' => $validated['academic_year'],
                         'semester' => $semester,
                         'payment_status' => 'PENDING',
                         'payment_amount' => $tuition,
                     ],
                     'student_account' => [
-                        'email' => $existingStudent->user_email ?? $request->personal_email,
+                        'email' => $existingStudent->user_email ?? $validated['personal_email'],
                         'password' => null,
                     ]
                 ], 201);
@@ -277,13 +346,12 @@ class RegistrationController extends Controller
 
             /**
              * ✅ First-time student path
-             * Create user + student once.
              */
             $plainPassword = 'novatech' . now()->format('Ymd');
 
             $user = User::create([
                 'name' => $fullNameEn,
-                'email' => $request->personal_email,
+                'email' => $validated['personal_email'],
                 'password' => Hash::make($plainPassword),
                 'role' => 'register',
                 'profile_picture_path' => $profilePicturePath,
@@ -292,19 +360,18 @@ class RegistrationController extends Controller
             $student = Student::create([
                 'registration_id' => $registrationId,
                 'user_id' => $user->id,
-                'department_id' => $request->department_id,
+                'department_id' => $validated['department_id'],
                 'full_name_kh' => $fullNameKh,
                 'full_name_en' => $fullNameEn,
-                'date_of_birth' => $request->date_of_birth,
-                'gender' => $request->gender,
-                'phone_number' => $request->phone_number,
+                'date_of_birth' => $validated['date_of_birth'],
+                'gender' => $validated['gender'],
+                'phone_number' => $validated['phone_number'] ?? null,
                 'profile_picture_path' => $profilePicturePath,
             ]);
 
-            // ensure academic period exists
             $this->ensureAcademicPeriod(
                 (int) $student->id,
-                (string) $request->academic_year,
+                (string) $validated['academic_year'],
                 (int) $semester,
                 (float) $tuition
             );
@@ -318,7 +385,7 @@ class RegistrationController extends Controller
                     'registration_id' => $registrationId,
                     'student_id' => $student->id,
                     'student_code' => $student->student_code,
-                    'academic_year' => $request->academic_year,
+                    'academic_year' => $validated['academic_year'],
                     'semester' => $semester,
                     'payment_status' => 'PENDING',
                     'payment_amount' => $tuition,
@@ -331,7 +398,6 @@ class RegistrationController extends Controller
         } catch (\Throwable $e) {
             DB::rollBack();
 
-            // cleanup uploaded file on failure
             if (!empty($profilePicturePath) && File::exists(public_path($profilePicturePath))) {
                 File::delete(public_path($profilePicturePath));
             }
@@ -354,16 +420,13 @@ class RegistrationController extends Controller
             ->join('departments', 'registrations.department_id', '=', 'departments.id')
             ->join('majors', 'registrations.major_id', '=', 'majors.id')
 
-            // join users by email so returning-student registrations can still map to student
             ->leftJoin('users', 'users.email', '=', 'registrations.personal_email')
 
-            // join students by (registration_id) OR (user_id) so old + new flow both work
             ->leftJoin('students', function ($join) {
                 $join->on('students.registration_id', '=', 'registrations.id')
                     ->orOn('students.user_id', '=', 'users.id');
             })
 
-            // join academic period for selected semester + academic_year
             ->leftJoin('student_academic_periods as sap', function ($join) use ($semester) {
                 $join->on('sap.student_id', '=', 'students.id')
                     ->on('sap.academic_year', '=', 'registrations.academic_year')
@@ -437,13 +500,41 @@ class RegistrationController extends Controller
             'last_name' => 'sometimes|required|string|max:255',
             'full_name_kh' => 'nullable|string|max:255',
             'full_name_en' => 'nullable|string|max:255',
-            'gender' => 'sometimes|required|string',
+            'gender' => 'sometimes|required|string|max:50',
             'date_of_birth' => 'sometimes|required|date',
             'personal_email' => 'sometimes|required|email|max:255',
             'phone_number' => 'nullable|string|max:20',
             'department_id' => 'sometimes|required|exists:departments,id',
             'major_id' => 'sometimes|required|exists:majors,id',
             'academic_year' => 'sometimes|required|string|max:20',
+
+            // ✅ allow updating these too
+            'high_school_name' => 'sometimes|required|string|max:255',
+            'graduation_year' => 'nullable|string|max:10',
+            'grade12_result' => 'nullable|string|max:50',
+            'faculty' => 'nullable|string|max:255',
+            'shift' => 'nullable|string|max:50',
+            'batch' => 'nullable|string|max:50',
+            'address' => 'nullable|string|max:255',
+            'current_address' => 'nullable|string|max:255',
+
+            'father_name' => 'nullable|string|max:255',
+            'fathers_date_of_birth' => 'nullable|date',
+            'fathers_nationality' => 'nullable|string|max:100',
+            'fathers_job' => 'nullable|string|max:255',
+            'fathers_phone_number' => 'nullable|string|max:20',
+
+            'mother_name' => 'nullable|string|max:255',
+            'mother_date_of_birth' => 'nullable|date',
+            'mother_nationality' => 'nullable|string|max:100',
+            'mothers_job' => 'nullable|string|max:255',
+            'mother_phone_number' => 'nullable|string|max:20',
+
+            'guardian_name' => 'nullable|string|max:255',
+            'guardian_phone_number' => 'nullable|string|max:20',
+            'emergency_contact_name' => 'nullable|string|max:255',
+            'emergency_contact_phone_number' => 'nullable|string|max:20',
+
             'profile_picture' => 'nullable|file|mimes:jpeg,jpg,png|max:5120',
         ]);
 
@@ -593,7 +684,6 @@ class RegistrationController extends Controller
             return response()->json(['success' => false, 'message' => 'Student not found for this registration'], 404);
         }
 
-        // ensure period exists (if missing)
         $majorFee = 0;
         if (!empty($reg->major_id)) {
             $m = Major::find($reg->major_id);
@@ -607,7 +697,6 @@ class RegistrationController extends Controller
             (float) $majorFee
         );
 
-        // mark pending
         DB::table('student_academic_periods')
             ->where('student_id', $student->id)
             ->where('academic_year', $reg->academic_year)
@@ -644,7 +733,6 @@ class RegistrationController extends Controller
                 return response()->json(['success' => false, 'message' => 'Student not found for this registration'], 404);
             }
 
-            // mark PAID for this period
             $this->upsertAcademicPeriodNoCreatedAtOverwrite(
                 (int) $student->id,
                 (string) $registration->academic_year,
@@ -656,7 +744,6 @@ class RegistrationController extends Controller
                 ]
             );
 
-            // upgrade user role
             if (!empty($registration->personal_email)) {
                 User::where('email', $registration->personal_email)
                     ->where('role', 'register')
