@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ClassGroup;
+use App\Services\ClassGroupAllocator;
 use Illuminate\Http\Request;
 
 class ClassGroupController extends Controller
@@ -41,7 +42,7 @@ class ClassGroupController extends Controller
             'academic_year' => 'required|string|regex:/^\d{4}-\d{4}$/',
             'semester'      => 'required|integer|min:1|max:3',
             'shift'         => 'nullable|string|max:50',
-            'capacity'      => 'nullable|integer|min:1|max:500',
+            'capacity'      => 'nullable|integer|min:1|max:5000',
         ]);
 
         // prevent duplicate group name in same major/year/semester/shift
@@ -50,7 +51,14 @@ class ClassGroupController extends Controller
             ->where('semester', (int)$validated['semester'])
             ->where('class_name', (string)$validated['class_name'])
             ->when(array_key_exists('shift', $validated), function ($q) use ($validated) {
-                $q->where('shift', $validated['shift']);
+                // only filter shift if provided (null allowed)
+                if ($validated['shift'] !== null && $validated['shift'] !== '') {
+                    $q->where('shift', $validated['shift']);
+                } else {
+                    $q->where(function ($w) {
+                        $w->whereNull('shift')->orWhere('shift', '');
+                    });
+                }
             })
             ->exists();
 
@@ -83,7 +91,7 @@ class ClassGroupController extends Controller
             'academic_year' => 'required|string|regex:/^\d{4}-\d{4}$/',
             'semester'      => 'required|integer|min:1|max:3',
             'shift'         => 'nullable|string|max:50',
-            'capacity'      => 'nullable|integer|min:1|max:500',
+            'capacity'      => 'nullable|integer|min:1|max:5000',
         ]);
 
         $exists = ClassGroup::where('id', '!=', $row->id)
@@ -92,7 +100,13 @@ class ClassGroupController extends Controller
             ->where('semester', (int)$validated['semester'])
             ->where('class_name', (string)$validated['class_name'])
             ->when(array_key_exists('shift', $validated), function ($q) use ($validated) {
-                $q->where('shift', $validated['shift']);
+                if ($validated['shift'] !== null && $validated['shift'] !== '') {
+                    $q->where('shift', $validated['shift']);
+                } else {
+                    $q->where(function ($w) {
+                        $w->whereNull('shift')->orWhere('shift', '');
+                    });
+                }
             })
             ->exists();
 
@@ -112,7 +126,6 @@ class ClassGroupController extends Controller
     {
         $row = ClassGroup::findOrFail($id);
 
-        // optional safety: prevent delete if courses exist
         if ($row->courses()->exists()) {
             return response()->json([
                 'message' => 'Cannot delete class group because it has courses.'
@@ -123,4 +136,10 @@ class ClassGroupController extends Controller
 
         return response()->json(['message' => 'Class group deleted'], 200);
     }
+
+    /**
+     * ✅ NOTE:
+     * We did NOT add any new endpoint.
+     * Auto-create & assign happens when you call the allocator from paymentCallback or enrollment flow.
+     */
 }

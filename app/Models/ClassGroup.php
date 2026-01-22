@@ -7,7 +7,12 @@ use Illuminate\Database\Eloquent\Model;
 class ClassGroup extends Model
 {
     protected $fillable = [
-        'class_name','major_id','academic_year','semester','shift','capacity'
+        'class_name',
+        'major_id',
+        'academic_year',
+        'semester',
+        'shift',
+        'capacity'
     ];
 
     public function courses()
