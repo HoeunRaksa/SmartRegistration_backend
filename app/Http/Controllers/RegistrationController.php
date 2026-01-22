@@ -389,27 +389,25 @@ class RegistrationController extends Controller
      * - student_id resolved by COALESCE(s_by_reg, s_by_user)
      * - sap joins correctly => paid won't show pending
      */
- public function index(Request $request)
+public function index(Request $request)
 {
     $semester = $this->normalizeSemester($request->input('semester', 1));
 
-    // Build a subquery that resolves ONE student_id per registration
-    // Prefer matching by user/email first (new flow), then fallback registration_id (old flow)
     $registrations = DB::table('registrations as r')
         ->join('departments as d', 'r.department_id', '=', 'd.id')
         ->join('majors as m', 'r.major_id', '=', 'm.id')
+
+        // link user by email (ok)
         ->leftJoin('users as u', 'u.email', '=', 'r.personal_email')
 
-        // Prefer student by user_id (new flow)
-        ->leftJoin('students as s_user', 's_user.user_id', '=', 'u.id')
+        // ✅ NEW: find student primarily by user_id (stable across years)
+        ->leftJoin('students as s', function ($join) {
+            $join->on('s.user_id', '=', 'u.id');
+        })
 
-        // Fallback student by registration_id (old flow)
-        ->leftJoin('students as s_reg', 's_reg.registration_id', '=', 'r.id')
-
-        // Join academic period using computed student_id
+        // ✅ join period using s.id (student_id)
         ->leftJoin('student_academic_periods as sap', function ($join) use ($semester) {
-            // Prefer s_user.id first, fallback s_reg.id
-            $join->on('sap.student_id', '=', DB::raw('COALESCE(s_user.id, s_reg.id)'))
+            $join->on('sap.student_id', '=', 's.id')
                 ->on('sap.academic_year', '=', 'r.academic_year')
                 ->where('sap.semester', '=', $semester);
         })
@@ -419,17 +417,14 @@ class RegistrationController extends Controller
             'd.name as department_name',
             'm.major_name',
             'm.registration_fee',
-
-            // Prefer code/id from user match first
-            DB::raw('COALESCE(s_user.student_code, s_reg.student_code) as student_code'),
-            DB::raw('COALESCE(s_user.id, s_reg.id) as student_id'),
-
+            's.student_code',
+            's.id as student_id',
             DB::raw('COALESCE(sap.payment_status, "PENDING") as period_payment_status'),
             'sap.paid_at as period_paid_at',
             'sap.tuition_amount as period_tuition_amount',
             DB::raw($semester . ' as period_semester')
         )
-        ->orderByDesc('r.created_at')
+        ->orderBy('r.created_at', 'desc')
         ->get();
 
     $registrations = $registrations->map(function ($reg) {
@@ -441,6 +436,7 @@ class RegistrationController extends Controller
 
     return response()->json(['success' => true, 'data' => $registrations]);
 }
+
 
 
     public function payLater($id)
@@ -500,51 +496,108 @@ class RegistrationController extends Controller
         ]);
     }
 
-    public function markPaidCash($id, Request $request)
-    {
-        $registration = DB::table('registrations')->where('id', $id)->first();
-        if (!$registration) {
-            return response()->json(['success' => false, 'message' => 'Registration not found'], 404);
-        }
+private function upsertAcademicPeriodNoCreatedAtOverwrite(
+    int $studentId,
+    string $academicYear,
+    int $semester,
+    array $data
+): void {
+    $updated = DB::table('student_academic_periods')
+        ->where('student_id', $studentId)
+        ->where('academic_year', $academicYear)
+        ->where('semester', $semester)
+        ->update(array_merge($data, ['updated_at' => now()]));
 
-        $semester = $this->normalizeSemester($request->input('semester', 1));
-
-        DB::beginTransaction();
-        try {
-            $student = $this->findStudentByRegistrationOrContact(
-                (int) $id,
-                $registration->personal_email ?? null,
-                $registration->phone_number ?? null
-            );
-
-            if (!$student) {
-                return response()->json(['success' => false, 'message' => 'Student not found for this registration'], 404);
-            }
-
-            // ✅ Upsert paid (this is intended)
-            $this->upsertAcademicPeriodSafe(
-                (int) $student->id,
-                (string) $registration->academic_year,
-                (int) $semester,
-                [
-                    'status' => 'ACTIVE',
-                    'payment_status' => 'PAID',
-                    'paid_at' => now(),
-                ]
-            );
-
-            if (!empty($registration->personal_email)) {
-                User::where('email', $registration->personal_email)
-                    ->where('role', 'register')
-                    ->update(['role' => 'student']);
-            }
-
-            DB::commit();
-
-            return response()->json(['success' => true, 'message' => 'Marked as PAID (Cash).']);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            return response()->json(['success' => false, 'message' => 'Failed: ' . $e->getMessage()], 500);
-        }
+    if ($updated === 0) {
+        DB::table('student_academic_periods')->insert(array_merge([
+            'student_id' => $studentId,
+            'academic_year' => $academicYear,
+            'semester' => $semester,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $data));
     }
+}
+
+public function markPaidCash($id, Request $request)
+{
+    $registration = DB::table('registrations')->where('id', $id)->first();
+    if (!$registration) {
+        return response()->json(['success' => false, 'message' => 'Registration not found'], 404);
+    }
+
+    $semester = $this->normalizeSemester($request->input('semester', 1));
+
+    DB::beginTransaction();
+    try {
+        $student = $this->findStudentByRegistrationOrContact(
+            (int) $id,
+            $registration->personal_email ?? null,
+            $registration->phone_number ?? null
+        );
+
+        if (!$student) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Student not found for this registration'
+            ], 404);
+        }
+
+        if (empty($registration->academic_year)) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Registration academic_year is missing'
+            ], 422);
+        }
+
+        // ✅ Upsert PAID into student_academic_periods (NEW SOURCE OF TRUTH)
+        $this->upsertAcademicPeriodNoCreatedAtOverwrite(
+            (int) $student->id,
+            (string) $registration->academic_year,
+            (int) $semester,
+            [
+                'status' => 'ACTIVE',
+                'payment_status' => 'PAID',
+                'paid_at' => now(),
+            ]
+        );
+
+        // ✅ Upgrade user role
+        if (!empty($registration->personal_email)) {
+            User::where('email', $registration->personal_email)
+                ->where('role', 'register')
+                ->update(['role' => 'student']);
+        }
+
+        DB::commit();
+
+        // ✅ Return what was saved so frontend can confirm immediately
+        $period = DB::table('student_academic_periods')
+            ->where('student_id', $student->id)
+            ->where('academic_year', $registration->academic_year)
+            ->where('semester', $semester)
+            ->first();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Marked as PAID (Cash).',
+            'debug' => [
+                'registration_id' => (int) $id,
+                'student_id' => (int) $student->id,
+                'academic_year' => (string) $registration->academic_year,
+                'semester' => (int) $semester,
+                'period' => $period,
+            ]
+        ]);
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed: ' . $e->getMessage()
+        ], 500);
+    }
+}
+
 }
