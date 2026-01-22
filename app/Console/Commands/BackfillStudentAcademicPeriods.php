@@ -8,7 +8,10 @@ use Illuminate\Support\Facades\Schema;
 
 class BackfillStudentAcademicPeriods extends Command
 {
-    protected $signature = 'backfill:student-periods {--semester=1} {--status=ACTIVE} {--dry-run}';
+    protected $signature = 'backfill:student-periods 
+    {--semester=1} 
+    {--status=ACTIVE} 
+    {--dry-run}';
     protected $description = 'Backfill student_academic_periods from registrations (supports old+new flow).';
 
     public function handle()
@@ -48,7 +51,7 @@ class BackfillStudentAcademicPeriods extends Command
             ->leftJoin('users', 'users.email', '=', 'registrations.personal_email')
             ->leftJoin('students', function ($join) {
                 $join->on('students.registration_id', '=', 'registrations.id')
-                     ->orOn('students.user_id', '=', 'users.id');
+                    ->orOn('students.user_id', '=', 'users.id');
             })
             ->leftJoin('majors', 'majors.id', '=', 'registrations.major_id')
             ->select(
@@ -64,8 +67,12 @@ class BackfillStudentAcademicPeriods extends Command
             ->whereNotNull('students.id') // must map to a student
             ->orderBy('registrations.id')
             ->chunkById(500, function ($rows) use (
-                $defaultSemester, $status, $dryRun,
-                &$created, &$updated, &$skipped
+                $defaultSemester,
+                $status,
+                $dryRun,
+                &$created,
+                &$updated,
+                &$skipped
             ) {
                 foreach ($rows as $r) {
                     $academicYear = trim((string) ($r->academic_year ?? ''));
