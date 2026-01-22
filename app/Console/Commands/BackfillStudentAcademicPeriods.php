@@ -8,10 +8,11 @@ use Illuminate\Support\Facades\Schema;
 
 class BackfillStudentAcademicPeriods extends Command
 {
-    protected $signature = 'backfill:student-periods 
-    {--semester=1} 
-    {--status=ACTIVE} 
-    {--dry-run}';
+   protected $signature = 'backfill:student-periods
+    {--semester=1 : 1 or 2}
+    {--status=ACTIVE : ACTIVE, COMPLETED, DROPPED}
+    {--dry-run : Show what would be inserted without writing}';
+
     protected $description = 'Backfill student_academic_periods from registrations (supports old+new flow).';
 
     public function handle()
