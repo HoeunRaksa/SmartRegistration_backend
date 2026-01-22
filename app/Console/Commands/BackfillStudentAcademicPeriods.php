@@ -17,6 +17,7 @@ class BackfillStudentAcademicPeriods extends Command
 
     public function handle()
     {
+        $dryRun = (bool) $this->option('dry-run');
         $defaultSemester = (int) $this->option('semester');
         if (!in_array($defaultSemester, [1, 2], true)) {
             $this->error("Invalid --semester value. Allowed: 1 or 2");
