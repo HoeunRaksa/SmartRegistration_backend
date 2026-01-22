@@ -168,6 +168,8 @@
                 @php
                     $statusRaw = $reg->payment_status ?? '';
                     $status = strtoupper(trim($statusRaw));
+                    if ($status === '') { $status = 'PENDING'; }
+
                     $badgeClass = match ($status) {
                         'PENDING' => 'badge-pending',
                         'COMPLETED' => 'badge-completed',
@@ -179,6 +181,8 @@
                     $genderRaw = $reg->gender ?? '';
                     $gender = ucfirst(strtolower(trim($genderRaw)));
                     $genderBadge = ($gender === 'Male') ? 'badge-male' : (($gender === 'Female') ? 'badge-female' : 'badge-unknown');
+
+                    $amount = $reg->payment_amount ?? 0;
                 @endphp
 
                 <tr>
@@ -194,7 +198,7 @@
                     <td>
                         <span class="badge {{ $badgeClass }}">{{ $status ?: 'N/A' }}</span>
                     </td>
-                    <td class="text-right">${{ number_format($reg->payment_amount ?? 0, 2) }}</td>
+                    <td class="text-right">${{ number_format((float)$amount, 2) }}</td>
                     <td>{{ $reg->created_at ? \Carbon\Carbon::parse($reg->created_at)->format('Y-m-d') : 'N/A' }}</td>
                 </tr>
             @endforeach
