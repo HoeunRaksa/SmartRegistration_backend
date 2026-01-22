@@ -185,7 +185,6 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::put('/registers/{id}', [RegistrationController::class, 'update']);
     Route::delete('/registers/{id}', [RegistrationController::class, 'destroy']);
 
-    Route::post('/payment/generate-qr', [PaymentController::class, 'generateQr']);
 
 
     // Reports
