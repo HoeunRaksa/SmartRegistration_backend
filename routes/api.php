@@ -176,7 +176,8 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::put('/schedules/{id}', [AdminScheduleController::class, 'update']);
         Route::delete('/schedules/{id}', [AdminScheduleController::class, 'destroy']);
 
-         Route::put('/registrations/{id}/mark-paid-cash', [RegistrationController::class, 'markPaidCash']);
+    Route::match(['post', 'put'], '/registrations/{id}/mark-paid-cash', [RegistrationController::class, 'markPaidCash']);
+
     });
 
     // Registrations
