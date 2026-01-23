@@ -599,75 +599,78 @@ class RegistrationController extends Controller
         }
     }
 
-    public function index(Request $request)
-    {
-        $registrations = DB::table('registrations as r')
-            ->join('departments as d', 'r.department_id', '=', 'd.id')
-            ->join('majors as m', 'r.major_id', '=', 'm.id')
+public function index(Request $request)
+{
+    $semester = (int) $request->input('semester', 0); // 0 = year/all, 1,2
 
-            // link user by email
-            ->leftJoin('users as u', 'u.email', '=', 'r.personal_email')
+    $q = DB::table('registrations as r')
+        ->join('departments as d', 'r.department_id', '=', 'd.id')
+        ->join('majors as m', 'r.major_id', '=', 'm.id')
+        ->leftJoin('users as u', 'u.email', '=', 'r.personal_email')
+        ->join('students as s', 's.user_id', '=', 'u.id')
 
-            // ✅ MUST exist
-            ->join('students as s', function ($join) {
-                $join->on('s.user_id', '=', 'u.id');
-            })
+        // sem 1
+        ->leftJoin('student_academic_periods as sap1', function ($join) {
+            $join->on('sap1.student_id', '=', 's.id')
+                 ->on('sap1.academic_year', '=', 'r.academic_year')
+                 ->where('sap1.semester', 1);
+        })
 
-            // ✅ Join semester 1
-            ->leftJoin('student_academic_periods as sap1', function ($join) {
-                $join->on('sap1.student_id', '=', 's.id')
-                    ->on('sap1.academic_year', '=', 'r.academic_year')
-                    ->where('sap1.semester', '=', 1);
-            })
+        // sem 2
+        ->leftJoin('student_academic_periods as sap2', function ($join) {
+            $join->on('sap2.student_id', '=', 's.id')
+                 ->on('sap2.academic_year', '=', 'r.academic_year')
+                 ->where('sap2.semester', 2);
+        })
 
-            // ✅ Join semester 2
-            ->leftJoin('student_academic_periods as sap2', function ($join) {
-                $join->on('sap2.student_id', '=', 's.id')
-                    ->on('sap2.academic_year', '=', 'r.academic_year')
-                    ->where('sap2.semester', '=', 2);
-            })
+        ->select(
+            'r.*',
+            DB::raw('d.name as department_name'),
+            'm.major_name',
+            'm.registration_fee',
+            's.student_code',
+            DB::raw('s.id as student_id'),
 
-            ->select(
-                'r.*',
-                DB::raw('d.name as department_name'),
-                'm.major_name',
-                'm.registration_fee',
+            DB::raw('COALESCE(sap1.payment_status, "PENDING") as sem1_payment_status'),
+            DB::raw('COALESCE(sap2.payment_status, "PENDING") as sem2_payment_status'),
 
-                's.student_code',
-                DB::raw('s.id as student_id'),
-
-                // semester 1 info
-                DB::raw('COALESCE(sap1.payment_status, "PENDING") as sem1_payment_status'),
-                'sap1.paid_at as sem1_paid_at',
-                'sap1.tuition_amount as sem1_tuition_amount',
-
-                // semester 2 info
-                DB::raw('COALESCE(sap2.payment_status, "PENDING") as sem2_payment_status'),
-                'sap2.paid_at as sem2_paid_at',
-                'sap2.tuition_amount as sem2_tuition_amount',
-
-                // ✅ computed YEAR status: PAID only if both semesters PAID
-                DB::raw("
-                CASE
-                    WHEN UPPER(COALESCE(sap1.payment_status,'PENDING')) = 'PAID'
-                     AND UPPER(COALESCE(sap2.payment_status,'PENDING')) = 'PAID'
-                    THEN 'PAID'
-                    ELSE 'PENDING'
-                END as year_payment_status
+            DB::raw("
+              CASE
+                WHEN COALESCE(sap1.payment_status,'PENDING')='PAID'
+                 AND COALESCE(sap2.payment_status,'PENDING')='PAID'
+                THEN 'PAID'
+                WHEN COALESCE(sap1.payment_status,'PENDING')='PAID'
+                  OR COALESCE(sap2.payment_status,'PENDING')='PAID'
+                THEN 'PARTIAL'
+                ELSE 'PENDING'
+              END as year_payment_status
             ")
-            )
-            ->orderBy('r.created_at', 'desc')
-            ->get();
+        )
+        ->orderBy('r.created_at', 'desc');
 
-        $registrations = $registrations->map(function ($reg) {
-            if (!empty($reg->profile_picture_path)) {
-                $reg->profile_picture_url = url($reg->profile_picture_path);
-            }
-            return $reg;
-        });
+    $rows = $q->get()->map(function ($reg) use ($semester) {
+        // what UI should show
+        if ($semester === 1) {
+            $reg->period_payment_status = $reg->sem1_payment_status;
+            $reg->period_semester = 1;
+        } elseif ($semester === 2) {
+            $reg->period_payment_status = $reg->sem2_payment_status;
+            $reg->period_semester = 2;
+        } else {
+            // year/all
+            $reg->period_payment_status = $reg->year_payment_status;
+            $reg->period_semester = 0;
+        }
 
-        return response()->json(['success' => true, 'data' => $registrations]);
-    }
+        if (!empty($reg->profile_picture_path)) {
+            $reg->profile_picture_url = url($reg->profile_picture_path);
+        }
+        return $reg;
+    });
+
+    return response()->json(['success' => true, 'data' => $rows]);
+}
+
 
 
 

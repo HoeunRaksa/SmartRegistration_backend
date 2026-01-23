@@ -116,35 +116,31 @@ class PaymentController extends Controller
     }
 
 
-    private function ensureAcademicPeriodNoReset(int $studentId, string $academicYear, int $semester, float $tuitionAmount): void
-    {
-        $existing = DB::table('student_academic_periods')
-            ->where('student_id', $studentId)
-            ->where('academic_year', $academicYear)
-            ->where('semester', $semester)
-            ->first();
-
-        if ($existing) {
-            DB::table('student_academic_periods')->where('id', $existing->id)->update([
-                'status' => 'ACTIVE',
-                'tuition_amount' => $tuitionAmount,
-                'updated_at' => now(),
-            ]);
-            return;
-        }
-
-        DB::table('student_academic_periods')->insert([
-            'student_id' => $studentId,
+ private function ensureAcademicPeriodNoReset(
+    int $studentId,
+    string $academicYear,
+    int $semester,
+    float $tuitionAmount
+): void {
+    DB::table('student_academic_periods')->updateOrInsert(
+        [
+            'student_id'    => $studentId,
             'academic_year' => $academicYear,
-            'semester' => $semester,
-            'status' => 'ACTIVE',
-            'tuition_amount' => $tuitionAmount,
-            'payment_status' => 'PENDING',
-            'paid_at' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
+            'semester'      => $semester,
+        ],
+        [
+            // ✅ Only safe fields
+            'status'        => 'ACTIVE',
+            'tuition_amount'=> $tuitionAmount,
+            'updated_at'    => now(),
+
+            // ✅ Only used on insert (fine to include)
+            'created_at'    => now(),
+        ]
+    );
+}
+
+
 
     private function parseTranId(string $tranId): array
     {
