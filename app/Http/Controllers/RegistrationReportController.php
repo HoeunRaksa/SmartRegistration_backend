@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use App\Models\Registration; 
 
 class RegistrationReportController extends Controller
 {
@@ -368,47 +371,140 @@ class RegistrationReportController extends Controller
     }
 
     /* ================== SUMMARY ================== */
+public function summary(Request $request)
+{
+    try {
+        $semester = (int) $request->input('semester', 0);
+        $academicYear = $request->input('academic_year', '');
 
-    public function summary(Request $request)
-    {
-        $rows = $this->baseReportQuery($request)->get();
+        // Decide which table exists in your DB (new flow first)
+        $periodTable = null;
+        if (Schema::hasTable('student_academic_periods')) {
+            $periodTable = 'student_academic_periods';
+        } elseif (Schema::hasTable('registration_periods')) {
+            $periodTable = 'registration_periods';
+        }
 
-        $pending = 0;
-        $completed = 0;
-        $failed = 0;
+        // Base query
+        $query = Registration::query()->from('registrations');
+
+        // If we have a period table and semester is selected, join it
+        if ($periodTable && ($semester === 1 || $semester === 2)) {
+
+            // Column names in join: try common patterns
+            // New flow usually: registration_id OR student_id
+            // We'll handle both by checking columns
+            $joinOn = null;
+
+            // Prefer registration_id if exists
+            if (Schema::hasColumn($periodTable, 'registration_id')) {
+                $joinOn = [$periodTable . '.registration_id', '=', 'registrations.id'];
+            } elseif (Schema::hasColumn($periodTable, 'student_id')) {
+                // fallback: join via students table if period table uses student_id
+                // But registrations may have student_id column already (depends on your schema)
+                if (Schema::hasColumn('registrations', 'student_id')) {
+                    $joinOn = [$periodTable . '.student_id', '=', 'registrations.student_id'];
+                } else {
+                    // cannot join reliably -> do not join
+                    $joinOn = null;
+                }
+            }
+
+            if ($joinOn) {
+                $query->leftJoin($periodTable . ' as rp', function ($join) use ($joinOn, $semester, $academicYear) {
+                    $join->on($joinOn[0], $joinOn[1], $joinOn[2]);
+
+                    // semester column name could be: semester or period_semester
+                    if (Schema::hasColumn(str_replace(' as rp', '', 'rp'), 'semester')) {
+                        $join->where('rp.semester', '=', $semester);
+                    } else {
+                        // if your table uses different column name, adjust here
+                        $join->where('rp.semester', '=', $semester);
+                    }
+
+                    if (!empty($academicYear) && Schema::hasColumn(str_replace(' as rp', '', 'rp'), 'academic_year')) {
+                        $join->where('rp.academic_year', '=', $academicYear);
+                    }
+                });
+
+                // Select needed fields for summary
+                $query->select([
+                    'registrations.id',
+                    'registrations.gender',
+                    'registrations.payment_status',
+                    'registrations.payment_amount',
+                    DB::raw('rp.payment_status as period_payment_status'),
+                    DB::raw('rp.tuition_amount as period_tuition_amount'),
+                ]);
+            } else {
+                // join not possible -> fallback to registrations only
+                $query->select([
+                    'registrations.id',
+                    'registrations.gender',
+                    'registrations.payment_status',
+                    'registrations.payment_amount',
+                ]);
+            }
+        } else {
+            // No join (all semesters) - filter by registrations academic_year if requested
+            if (!empty($academicYear) && Schema::hasColumn('registrations', 'academic_year')) {
+                $query->where('registrations.academic_year', $academicYear);
+            }
+
+            $query->select([
+                'registrations.id',
+                'registrations.gender',
+                'registrations.payment_status',
+                'registrations.payment_amount',
+            ]);
+        }
+
+        $rows = $query->get();
+
+        // Helper for status + amount
+        $normalize = function ($s) {
+            return strtoupper(trim((string)($s ?? 'PENDING')));
+        };
+
+        $paidStatuses = ['PAID', 'COMPLETED', 'SUCCESS', 'APPROVED', 'DONE'];
+
         $paidAmount = 0.0;
         $pendingAmount = 0.0;
 
-        foreach ($rows as $r) {
-            $statusU = $this->cleanUpper($r->period_payment_status ?? $r->payment_status ?? 'PENDING');
-            $amt = (float)($r->period_tuition_amount ?? $r->payment_amount ?? 0);
+        $pendingCount = 0;
+        $completedCount = 0;
+        $failedCount = 0;
 
-            if ($this->isPaid($statusU)) {
-                $completed++;
-                $paidAmount += $amt;
-            } elseif ($statusU === 'FAILED') {
-                $failed++;
-                $pendingAmount += $amt;
+        foreach ($rows as $r) {
+            $status = $normalize($r->period_payment_status ?? $r->payment_status ?? 'PENDING');
+            $amount = (float) ($r->period_tuition_amount ?? $r->payment_amount ?? 0);
+
+            if (in_array($status, $paidStatuses, true)) {
+                $completedCount++;
+                $paidAmount += $amount;
+            } elseif ($status === 'FAILED') {
+                $failedCount++;
+                $pendingAmount += $amount;
             } else {
-                $pending++;
-                $pendingAmount += $amt;
+                $pendingCount++;
+                $pendingAmount += $amount;
             }
         }
 
         $summary = [
             'total_registrations' => $rows->count(),
             'by_gender' => [
-                'male' => $rows->filter(fn($r) => strtolower(trim((string)($r->gender ?? ''))) === 'male')->count(),
-                'female' => $rows->filter(fn($r) => strtolower(trim((string)($r->gender ?? ''))) === 'female')->count(),
+                'male' => $rows->where('gender', 'Male')->count(),
+                'female' => $rows->where('gender', 'Female')->count(),
             ],
             'by_payment_status' => [
-                'pending' => $pending,
-                'completed' => $completed,
-                'failed' => $failed,
+                'pending' => $pendingCount,
+                'completed' => $completedCount,
+                'failed' => $failedCount,
             ],
             'financial' => [
-                'paid_amount' => (float)$paidAmount,
-                'pending_amount' => (float)$pendingAmount,
+                'paid_amount' => (float) $paidAmount,
+                'pending_amount' => (float) $pendingAmount,
             ],
         ];
 
@@ -416,5 +512,20 @@ class RegistrationReportController extends Controller
             'success' => true,
             'data' => $summary,
         ]);
+    } catch (\Throwable $e) {
+        Log::error('Registration report summary failed', [
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Summary failed',
+            'error' => $e->getMessage(), // keep for now, remove later in production
+        ], 500);
     }
+}
+
+
 }
