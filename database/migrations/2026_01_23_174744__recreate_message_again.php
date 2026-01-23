@@ -11,11 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Drop in correct order (FK safety)
-        Schema::dropIfExists('messages');
-        Schema::dropIfExists('conversation_participants');
-        Schema::dropIfExists('conversations');
         //
+        Schema::dropIfExists('messages');
         Schema::create('messages', function (Blueprint $table) {
             $table->id();
 
@@ -27,20 +24,28 @@ return new class extends Migration
                 ->constrained('users')
                 ->onDelete('cascade');
 
-            $table->enum('type', ['text', 'image', 'file', 'audio'])
-                ->default('text');
-
             $table->text('content')->nullable(); // text message
-
-            $table->string('file_path')->nullable(); // image, file, audio
 
             $table->boolean('is_read')->default(false);
 
             $table->timestamps();
 
-            // performance
             $table->index(['s_id', 'r_id']);
-            $table->index(['s_id', 'is_read']);
+        });
+        
+        Schema::create('message_attachments', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('message_id')
+                ->constrained('messages')
+                ->onDelete('cascade');
+
+            $table->enum('type', ['image', 'file', 'audio']);
+            $table->string('file_path');
+            $table->string('original_name')->nullable();
+            $table->integer('file_size')->nullable();
+
+            $table->timestamps();
         });
     }
 
