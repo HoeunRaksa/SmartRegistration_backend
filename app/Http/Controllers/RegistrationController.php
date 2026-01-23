@@ -7,13 +7,31 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
-use App\Http\Controllers\HttpResponseException;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Support\Facades\Schema;
 use App\Models\Student;
 use App\Models\User;
 use App\Models\Major;
 
 class RegistrationController extends Controller
 {
+        private function normalizeSemester($semester): int
+    {
+        $s = (int) ($semester ?? 1);
+        return in_array($s, [1, 2], true) ? $s : 1;
+    }
+
+    private function putIfColumnExists(array &$data, string $table, string $column, $value): void
+    {
+        if (Schema::hasColumn($table, $column)) {
+            $data[$column] = $value;
+        }
+    }
+
+    private function jsonAbort(array $payload, int $status = 409): void
+    {
+        throw new HttpResponseException(response()->json($payload, $status));
+    }
 
     private function findStudentByRegistrationOrContact(int $registrationId, ?string $email, ?string $phone)
     {
