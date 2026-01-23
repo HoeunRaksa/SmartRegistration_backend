@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use App\Models\User;
-use App\Models\Major;
+use App\Services\ClassGroupAllocator;
 
 class PaymentController extends Controller
 {
@@ -74,7 +74,6 @@ class PaymentController extends Controller
             ->first();
     }
 
-
     private function assertMajorCanPayOrFail(int $majorId, string $academicYear): void
     {
         $quota = DB::table('major_quotas')
@@ -83,12 +82,10 @@ class PaymentController extends Controller
             ->lockForUpdate()
             ->first();
 
-        // No quota row => unlimited
         if (!$quota) return;
 
         $now = now();
 
-        // optional open/close window
         if (!empty($quota->opens_at) && $now->lt($quota->opens_at)) {
             throw new \RuntimeException('PAYMENT_NOT_OPEN');
         }
@@ -98,11 +95,10 @@ class PaymentController extends Controller
         }
 
         $limit = (int) ($quota->limit ?? 0);
-        if ($limit <= 0) return; // treat <=0 as unlimited
+        if ($limit <= 0) return;
 
-        // Count PAID seats (distinct students) for that major + academic year
         $paidCount = (int) DB::table('student_academic_periods as sap')
-            ->join('students as s', 's.id', '=', 'sap.student_id')
+            ->join('students as s', 's.id', '=', 'sap.student_id')        // sap.student_id = students.id
             ->join('registrations as r', 'r.id', '=', 's.registration_id')
             ->where('r.major_id', $majorId)
             ->where('sap.academic_year', $academicYear)
@@ -115,38 +111,54 @@ class PaymentController extends Controller
         }
     }
 
+    // ✅ never reset payment_status/paid_at/tran_id
+    private function ensureAcademicPeriodNoReset(
+        int $studentId,
+        string $academicYear,
+        int $semester,
+        float $tuitionAmount
+    ): void {
+        $semester = $this->normalizeSemester($semester);
 
- private function ensureAcademicPeriodNoReset(
-    int $studentId,
-    string $academicYear,
-    int $semester,
-    float $tuitionAmount
-): void {
-    DB::table('student_academic_periods')->updateOrInsert(
-        [
-            'student_id'    => $studentId,
+        $row = DB::table('student_academic_periods')
+            ->where('student_id', $studentId)
+            ->where('academic_year', $academicYear)
+            ->where('semester', $semester)
+            ->first();
+
+        if ($row) {
+            DB::table('student_academic_periods')
+                ->where('id', $row->id)
+                ->update([
+                    'status' => 'ACTIVE',
+                    'tuition_amount' => $tuitionAmount,
+                    'updated_at' => now(),
+                ]);
+            return;
+        }
+
+        $insert = [
+            'student_id' => $studentId,
             'academic_year' => $academicYear,
-            'semester'      => $semester,
-        ],
-        [
-            // ✅ Only safe fields
-            'status'        => 'ACTIVE',
-            'tuition_amount'=> $tuitionAmount,
-            'updated_at'    => now(),
+            'semester' => $semester,
+            'status' => 'ACTIVE',
+            'tuition_amount' => $tuitionAmount,
+            'payment_status' => 'PENDING',
+            'paid_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
 
-            // ✅ Only used on insert (fine to include)
-            'created_at'    => now(),
-        ]
-    );
-}
+        // ✅ only if column exists
+        if (Schema::hasColumn('student_academic_periods', 'tran_id')) {
+            $insert['tran_id'] = null;
+        }
 
-
+        DB::table('student_academic_periods')->insert($insert);
+    }
 
     private function parseTranId(string $tranId): array
     {
-        // Expected:
-        // SEMESTER: REG-{regId}-S{sem}-{timestamp}
-        // YEAR:     REG-{regId}-Y-{timestamp}
         $out = [
             'registration_id' => null,
             'type' => null,
@@ -170,12 +182,10 @@ class PaymentController extends Controller
         return $out;
     }
 
-
     public function generateQr(Request $request)
     {
         Log::info('🔥 generateQr hit', ['payload' => $request->all()]);
 
-        // ✅ Don’t use exists:registrations,id (it returns confusing “invalid”)
         $request->validate([
             'registration_id' => 'required|integer|min:1',
             'semester' => 'nullable|integer|in:1,2',
@@ -190,7 +200,6 @@ class PaymentController extends Controller
         DB::beginTransaction();
 
         try {
-            // ✅ Get registration + fee
             $registration = DB::table('registrations')
                 ->join('majors', 'registrations.major_id', '=', 'majors.id')
                 ->where('registrations.id', (int)$request->registration_id)
@@ -201,12 +210,11 @@ class PaymentController extends Controller
                 DB::rollBack();
                 return response()->json([
                     'success' => false,
-                    'message' => 'Registration not found. Use registration_id returned from /api/register/save',
+                    'message' => 'Registration not found.',
                     'registration_id' => (int)$request->registration_id,
                 ], 404);
             }
 
-            // ✅ Find student (NO create here)
             $student = $this->findStudentByRegistrationOrContact(
                 (int)$registration->id,
                 $registration->personal_email ?? null,
@@ -217,12 +225,11 @@ class PaymentController extends Controller
                 DB::rollBack();
                 return response()->json([
                     'success' => false,
-                    'message' => 'Student not found for this registration. Make sure registration created student successfully.',
+                    'message' => 'Student not found for this registration.',
                     'registration_id' => (int)$registration->id,
                 ], 404);
             }
 
-            // ✅ IMPORTANT FIX: correct student id field name
             $studentId = (int)$student->student_id;
 
             $yearFee = (float)($registration->registration_fee ?? 0);
@@ -234,7 +241,7 @@ class PaymentController extends Controller
             $amountFloat = ($payPlan['type'] === 'YEAR') ? $yearFee : ($yearFee * 0.5);
             $amount      = number_format((float)$amountFloat, 2, '.', '');
 
-            // ✅ Ensure academic period exists WITHOUT resetting PAID
+            // ✅ ensure periods exist (never reset)
             if ($payPlan['type'] === 'YEAR') {
                 $this->ensureAcademicPeriodNoReset($studentId, (string)$registration->academic_year, 1, $yearFee * 0.5);
                 $this->ensureAcademicPeriodNoReset($studentId, (string)$registration->academic_year, 2, $yearFee * 0.5);
@@ -251,7 +258,9 @@ class PaymentController extends Controller
                     ->where('semester', 2)
                     ->first();
 
-                if ($p1 && $p2 && strtoupper((string)$p1->payment_status) === 'PAID' && strtoupper((string)$p2->payment_status) === 'PAID') {
+                if ($p1 && $p2
+                    && strtoupper((string)$p1->payment_status) === 'PAID'
+                    && strtoupper((string)$p2->payment_status) === 'PAID') {
                     DB::rollBack();
                     return response()->json(['success' => false, 'message' => 'Already paid full year.'], 409);
                 }
@@ -266,11 +275,10 @@ class PaymentController extends Controller
 
                 if ($period && strtoupper((string)$period->payment_status) === 'PAID') {
                     DB::rollBack();
-                    return response()->json(['success' => false, 'message' => 'Already paid for this academic year and semester.'], 409);
+                    return response()->json(['success' => false, 'message' => 'Already paid for this semester.'], 409);
                 }
             }
 
-            /* ================= REQUIRED FIELDS ================= */
             $reqTime    = now()->utc()->format('YmdHis');
             $merchantId = config('payway.merchant_id');
 
@@ -278,27 +286,21 @@ class PaymentController extends Controller
                 ? ('REG-' . $registration->id . '-Y-' . time())
                 : ('REG-' . $registration->id . '-S' . $payPlan['semester'] . '-' . time());
 
-            // ✅ Save transaction
             $txData = [
                 'amount' => $amount,
                 'status' => 'PENDING',
                 'updated_at' => now(),
             ];
 
-            if (Schema::hasColumn('payment_transactions', 'created_at')) {
-                $txData['created_at'] = now();
-            }
+            if (Schema::hasColumn('payment_transactions', 'created_at')) $txData['created_at'] = now();
             if (Schema::hasColumn('payment_transactions', 'student_id')) $txData['student_id'] = $studentId;
             if (Schema::hasColumn('payment_transactions', 'academic_year')) $txData['academic_year'] = (string)$registration->academic_year;
             if (Schema::hasColumn('payment_transactions', 'semester')) $txData['semester'] = $payPlan['type'] === 'YEAR' ? null : (int)$payPlan['semester'];
             if (Schema::hasColumn('payment_transactions', 'pay_plan_type')) $txData['pay_plan_type'] = $payPlan['type'];
 
-            DB::table('payment_transactions')->updateOrInsert(
-                ['tran_id' => $tranId],
-                $txData
-            );
+            DB::table('payment_transactions')->updateOrInsert(['tran_id' => $tranId], $txData);
 
-            // ✅ Save tran_id into periods (if column exists)
+            // ✅ write tran_id into periods only if column exists
             if (Schema::hasColumn('student_academic_periods', 'tran_id')) {
                 if ($payPlan['type'] === 'YEAR') {
                     DB::table('student_academic_periods')
@@ -389,10 +391,7 @@ class PaymentController extends Controller
 
             if (!$response->successful()) {
                 DB::rollBack();
-                Log::error('ABA QR Error', [
-                    'status' => $response->status(),
-                    'body'   => $response->body(),
-                ]);
+                Log::error('ABA QR Error', ['status' => $response->status(), 'body' => $response->body()]);
                 return response()->json($response->json(), 403);
             }
 
@@ -420,55 +419,38 @@ class PaymentController extends Controller
     {
         Log::info('ABA CALLBACK RECEIVED', ['payload' => $request->all()]);
 
-        $tranId = (string) ($request->input('tran_id') ?? '');
+        $tranId = (string)($request->input('tran_id') ?? '');
         if ($tranId === '') {
-            // ABA needs HTTP 200 always
             return response()->json(['ack' => 'ok']);
         }
 
-        /*
-    |------------------------------------------------------------
-    | Robust status detection
-    | ABA commonly uses payment_status_code = "0" for success
-    | Some payloads may include nested status.code or status field
-    |------------------------------------------------------------
-    */
-        $code = (string) (
+        $code = (string)(
             $request->input('payment_status_code')
             ?? data_get($request->all(), 'status.code')
             ?? $request->input('status')
             ?? ''
         );
 
-        $status = ($code === '0' || strtoupper($code) === 'SUCCESS') ? 'PAID' : 'FAILED';
+        $codeU = strtoupper(trim($code));
+        $status = ($code === '0' || $codeU === 'SUCCESS') ? 'PAID' : 'FAILED';
 
-        /*
-    |------------------------------------------------------------
-    | Upsert payment transaction log (DO NOT overwrite created_at)
-    |------------------------------------------------------------
-    */
+        // ✅ upsert tx (do not overwrite created_at)
         $existingTx = DB::table('payment_transactions')->where('tran_id', $tranId)->first();
-
         if ($existingTx) {
-            DB::table('payment_transactions')
-                ->where('tran_id', $tranId)
-                ->update([
-                    'status' => $status,
-                    'updated_at' => now(),
-                ]);
+            DB::table('payment_transactions')->where('tran_id', $tranId)->update([
+                'status' => $status,
+                'updated_at' => now(),
+            ]);
         } else {
             $insert = [
                 'tran_id' => $tranId,
                 'status' => $status,
                 'updated_at' => now(),
             ];
-            if (Schema::hasColumn('payment_transactions', 'created_at')) {
-                $insert['created_at'] = now();
-            }
+            if (Schema::hasColumn('payment_transactions', 'created_at')) $insert['created_at'] = now();
             DB::table('payment_transactions')->insert($insert);
         }
 
-        // If FAILED => keep 200 OK, do nothing else
         if ($status !== 'PAID') {
             return response()->json(['ack' => 'ok']);
         }
@@ -476,128 +458,90 @@ class PaymentController extends Controller
         try {
             DB::beginTransaction();
 
-            /*
-        |------------------------------------------------------------
-        | 1) Locate student_academic_periods by tran_id (best path)
-        |------------------------------------------------------------
-        */
+            $parsed = $this->parseTranId($tranId);
             $periods = collect();
+            $reg = null;
 
+            // 1) try by tran_id
             if (Schema::hasColumn('student_academic_periods', 'tran_id')) {
                 $periods = DB::table('student_academic_periods')
                     ->where('tran_id', $tranId)
                     ->get();
             }
 
-            /*
-        |------------------------------------------------------------
-        | 2) Fallback: parse tranId => registration => student => periods
-        | Requires your existing helpers:
-        | - parseTranId($tranId)
-        | - findStudentByRegistrationOrContact($regId, $email, $phone)
-        |------------------------------------------------------------
-        */
-            $reg = null;
-            $student = null;
-
-            if ($periods->count() === 0) {
-                $parsed = $this->parseTranId($tranId);
-
-                if (!empty($parsed['registration_id'])) {
-                    $reg = DB::table('registrations')
-                        ->where('id', (int) $parsed['registration_id'])
-                        ->first();
-
-                    if ($reg) {
-                        $student = $this->findStudentByRegistrationOrContact(
-                            (int) $reg->id,
-                            $reg->personal_email ?? null,
-                            $reg->phone_number ?? null
-                        );
-
-                        // ✅ IMPORTANT: use student_id (same as generateQr)
-                        $studentId = $student ? (int) ($student->student_id ?? 0) : 0;
-
-                        if ($studentId > 0) {
-                            if (($parsed['type'] ?? '') === 'YEAR') {
-                                $periods = DB::table('student_academic_periods')
-                                    ->where('student_id', $studentId)
-                                    ->where('academic_year', (string) $reg->academic_year)
-                                    ->whereIn('semester', [1, 2])
-                                    ->get();
-                            } elseif (($parsed['type'] ?? '') === 'SEMESTER' && !empty($parsed['semester'])) {
-                                $periods = DB::table('student_academic_periods')
-                                    ->where('student_id', $studentId)
-                                    ->where('academic_year', (string) $reg->academic_year)
-                                    ->where('semester', (int) $parsed['semester'])
-                                    ->get();
-                            }
-                        }
-                    }
-                }
+            // 2) load reg + student if possible (ALWAYS helpful)
+            if (!empty($parsed['registration_id'])) {
+                $reg = DB::table('registrations')->where('id', (int)$parsed['registration_id'])->first();
             }
 
-            // Still no periods found => nothing to update, but ACK OK
+            $studentId = 0;
+            if ($reg) {
+                $student = $this->findStudentByRegistrationOrContact(
+                    (int)$reg->id,
+                    $reg->personal_email ?? null,
+                    $reg->phone_number ?? null
+                );
+                $studentId = $student ? (int)($student->student_id ?? 0) : 0;
+            }
+
+            // ✅ YEAR: ensure ALWAYS have both periods (prevents "paid only 1 semester")
+            if (($parsed['type'] ?? '') === 'YEAR' && $reg && $studentId > 0) {
+                if ($periods->count() < 2) {
+                    $this->ensureAcademicPeriodNoReset($studentId, (string)$reg->academic_year, 1, 0);
+                    $this->ensureAcademicPeriodNoReset($studentId, (string)$reg->academic_year, 2, 0);
+                }
+
+                $periods = DB::table('student_academic_periods')
+                    ->where('student_id', $studentId)
+                    ->where('academic_year', (string)$reg->academic_year)
+                    ->whereIn('semester', [1, 2])
+                    ->get();
+            }
+
+            // SEMESTER: if no periods found, load by student/year/semester
+            if ($periods->count() === 0 && $reg && $studentId > 0) {
+                $sem = ($parsed['type'] ?? '') === 'SEMESTER'
+                    ? $this->normalizeSemester((int)($parsed['semester'] ?? 1))
+                    : 1;
+
+                $periods = DB::table('student_academic_periods')
+                    ->where('student_id', $studentId)
+                    ->where('academic_year', (string)$reg->academic_year)
+                    ->where('semester', $sem)
+                    ->get();
+            }
+
             if ($periods->count() === 0) {
                 DB::commit();
                 return response()->json(['ack' => 'ok']);
             }
 
-            /*
-        |------------------------------------------------------------
-        | Determine major_id + academic_year for quota/window check
-        |------------------------------------------------------------
-        */
-            $majorId = null;
-            $academicYear = null;
-
-            if ($reg) {
-                $majorId = (int) ($reg->major_id ?? 0);
-                $academicYear = (string) ($reg->academic_year ?? '');
-            } else {
-                // derive from first period => student => registration
-                $first = $periods->first();
-
-                // ✅ IMPORTANT: students table lookup must use student_id
-                $studentRow = DB::table('students')
-                    ->where('student_id', (int) ($first->student_id ?? 0))
-                    ->first();
-
-                if ($studentRow) {
-                    $reg = DB::table('registrations')
-                        ->where('id', (int) ($studentRow->registration_id ?? 0))
-                        ->first();
-
-                    if ($reg) {
-                        $majorId = (int) ($reg->major_id ?? 0);
-                        $academicYear = (string) ($reg->academic_year ?? '');
-                    }
+            // ✅ Ensure reg loaded even if parsed missing
+            if (!$reg) {
+                $studentIdFromPeriod = (int)($periods->first()->student_id ?? 0);
+                $studentRow = DB::table('students')->where('id', $studentIdFromPeriod)->first();
+                if ($studentRow && !empty($studentRow->registration_id)) {
+                    $reg = DB::table('registrations')->where('id', (int)$studentRow->registration_id)->first();
                 }
+                $studentId = $studentIdFromPeriod;
             }
 
-            /*
-        |------------------------------------------------------------
-        | QUOTA CHECK (only when PAID)
-        | Requires your existing helper:
-        | - assertMajorCanPayOrFail($majorId, $academicYear)
-        | Throws RuntimeException with: MAJOR_FULL / PAYMENT_NOT_OPEN / PAYMENT_CLOSED
-        |------------------------------------------------------------
-        */
-            if (!empty($majorId) && !empty($academicYear)) {
-                try {
-                    $this->assertMajorCanPayOrFail((int) $majorId, (string) $academicYear);
-                } catch (\RuntimeException $ex) {
-                    $reason = $ex->getMessage(); // MAJOR_FULL / PAYMENT_NOT_OPEN / PAYMENT_CLOSED
+            $majorId = $reg ? (int)($reg->major_id ?? 0) : 0;
+            $academicYear = $reg ? (string)($reg->academic_year ?? '') : '';
+            $shift = $reg ? ($reg->shift ?? null) : null;
 
-                    DB::table('payment_transactions')
-                        ->where('tran_id', $tranId)
-                        ->update([
-                            'status' => $reason === 'MAJOR_FULL' ? 'REJECTED_FULL' : 'REJECTED',
-                            'updated_at' => now(),
-                        ]);
+            if ($majorId > 0 && $academicYear !== '') {
+                try {
+                    $this->assertMajorCanPayOrFail($majorId, $academicYear);
+                } catch (\RuntimeException $ex) {
+                    $reason = $ex->getMessage();
+
+                    DB::table('payment_transactions')->where('tran_id', $tranId)->update([
+                        'status' => $reason === 'MAJOR_FULL' ? 'REJECTED_FULL' : 'REJECTED',
+                        'updated_at' => now(),
+                    ]);
 
                     DB::commit();
-
                     Log::warning('Payment rejected by quota/window', [
                         'tran_id' => $tranId,
                         'reason' => $reason,
@@ -605,51 +549,50 @@ class PaymentController extends Controller
                         'academic_year' => $academicYear,
                     ]);
 
-                    // ABA must get 200
                     return response()->json(['ack' => 'ok']);
                 }
             }
 
-            /*
-        |------------------------------------------------------------
-        | Update periods to PAID (idempotent)
-        | Upgrade user role register => student
-        |------------------------------------------------------------
-        */
+            // ✅ mark periods paid
             foreach ($periods as $p) {
-                $alreadyPaid = strtoupper((string) ($p->payment_status ?? '')) === 'PAID';
-                if ($alreadyPaid) continue;
+                if (strtoupper((string)($p->payment_status ?? '')) === 'PAID') continue;
 
-                DB::table('student_academic_periods')
-                    ->where('id', (int) $p->id)
-                    ->update([
-                        'payment_status' => 'PAID',
-                        'paid_at' => now(),
-                        'updated_at' => now(),
-                    ]);
+                DB::table('student_academic_periods')->where('id', (int)$p->id)->update([
+                    'payment_status' => 'PAID',
+                    'paid_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-                // ✅ IMPORTANT: students lookup by student_id
-                $studentRow = DB::table('students')
-                    ->where('student_id', (int) ($p->student_id ?? 0))
-                    ->first();
-
+                // upgrade role
+                $studentRow = DB::table('students')->where('id', (int)$p->student_id)->first();
                 if ($studentRow && !empty($studentRow->user_id)) {
-                    User::where('id', (int) $studentRow->user_id)
+                    User::where('id', (int)$studentRow->user_id)
                         ->where('role', 'register')
                         ->update(['role' => 'student']);
                 }
             }
 
+            // ✅ auto assign class group
+            if ($majorId > 0 && $academicYear !== '' && $studentId > 0) {
+                $allocator = app(ClassGroupAllocator::class);
+
+                if (($parsed['type'] ?? '') === 'YEAR') {
+                    foreach ([1, 2] as $sem) {
+                        $group = $allocator->getOrCreateAvailableGroup($majorId, $academicYear, $sem, $shift, 40);
+                        $allocator->assignStudentToGroup($studentId, (int)$group->id, $academicYear, $sem);
+                    }
+                } else {
+                    $sem = $this->normalizeSemester((int)($parsed['semester'] ?? 1));
+                    $group = $allocator->getOrCreateAvailableGroup($majorId, $academicYear, $sem, $shift, 40);
+                    $allocator->assignStudentToGroup($studentId, (int)$group->id, $academicYear, $sem);
+                }
+            }
+
             DB::commit();
-            return response()->json(['ack' => 'ok']); // ABA must get 200
+            return response()->json(['ack' => 'ok']);
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('paymentCallback error', [
-                'tran_id' => $tranId,
-                'error' => $e->getMessage(),
-            ]);
-
-            // ABA must get 200 always
+            Log::error('paymentCallback error', ['tran_id' => $tranId, 'error' => $e->getMessage()]);
             return response()->json(['ack' => 'ok']);
         }
     }
