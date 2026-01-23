@@ -38,6 +38,8 @@ use App\Http\Controllers\Api\MajorQuotaController;
 use App\Http\Controllers\Api\TeacherController;
 
 use App\Http\Controllers\Api\StudentClassGroupController;
+
+use App\Http\Controllers\Api\ChatController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -52,6 +54,7 @@ use App\Http\Controllers\Api\StudentClassGroupController;
 | AUTH (PUBLIC)
 |--------------------------------------------------------------------------
 */
+
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register/save', [RegistrationController::class, 'store']); // student self-register
 Route::post('/registrations/{id}/pay-later', [RegistrationController::class, 'payLater']);
@@ -69,7 +72,6 @@ Route::prefix('students')->group(function () {
     Route::get('{studentId}/class-group', [StudentClassGroupController::class, 'show']);
     Route::post('{studentId}/class-group/assign', [StudentClassGroupController::class, 'assignManual']);
     Route::post('{studentId}/class-group/auto', [StudentClassGroupController::class, 'assignAuto']);
-   
 });
 /*
 |--------------------------------------------------------------------------
@@ -125,6 +127,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/teachers', [TeacherController::class, 'store']);
     Route::post('/teachers/{id}', [TeacherController::class, 'update']); // FormData friendly
     Route::delete('/teachers/{id}', [TeacherController::class, 'destroy']);
+
+    Route::get('/chat/{userId}', [ChatController::class, 'index']);
+    Route::get('/conversations', [ChatController::class, 'conversations']);
+    Route::post('/chat/{userId}', [ChatController::class, 'store']);
 });
 
 /*
@@ -196,8 +202,7 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::put('/schedules/{id}', [AdminScheduleController::class, 'update']);
         Route::delete('/schedules/{id}', [AdminScheduleController::class, 'destroy']);
 
-    Route::match(['post', 'put'], '/registrations/{id}/mark-paid-cash', [RegistrationController::class, 'markPaidCash']);
-
+        Route::match(['post', 'put'], '/registrations/{id}/mark-paid-cash', [RegistrationController::class, 'markPaidCash']);
     });
 
     // Registrations
@@ -255,7 +260,6 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     });
 
     Route::post('/teachers/{id}/reset-password', [TeacherController::class, 'resetPassword']);
-
 });
 
 /*
@@ -264,7 +268,6 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(function () {
-
     Route::get('/profile', [StudentProfileController::class, 'getProfile']);
 
     // Courses

@@ -2,32 +2,24 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Message extends Model
 {
-    use HasFactory;
-
-    protected $fillable = [
-        'conversation_id',
-        'sender_id',
-        'message',
-        'attachment_path',
-        'is_read',
-    ];
-
-    protected $casts = [
-        'is_read' => 'boolean',
-    ];
-
-    public function conversation()
-    {
-        return $this->belongsTo(Conversation::class);
-    }
+    protected $fillable = ['s_id', 'r_id', 'content', 'is_read'];
 
     public function sender()
     {
-        return $this->belongsTo(User::class, 'sender_id');
+        return $this->belongsTo(User::class, 's_id');
+    }
+
+    public function receiver()
+    {
+        return $this->belongsTo(User::class, 'r_id');
+    }
+
+    public function attachments()
+    {
+        return $this->hasMany(MessageAttachment::class);
     }
 }
