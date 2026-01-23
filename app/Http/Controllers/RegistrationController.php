@@ -550,7 +550,7 @@ class RegistrationController extends Controller
 
             ->select(
                 'r.*',
-                // ✅ your departments table uses department_name (not name)
+     
                 DB::raw('d.name as department_name'),
                 'm.major_name',
                 'm.registration_fee',

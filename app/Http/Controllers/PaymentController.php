@@ -35,7 +35,13 @@ class PaymentController extends Controller
     {
         $student = DB::table('students')
             ->where('registration_id', $registrationId)
-            ->select('id', 'student_code', 'user_id', 'registration_id', 'department_id')
+            ->select(
+                'students.id as student_id',
+                'students.student_code',
+                'students.user_id',
+                'students.registration_id',
+                'students.department_id'
+            )
             ->first();
 
         if ($student) return $student;
@@ -44,18 +50,30 @@ class PaymentController extends Controller
             ->leftJoin('users', 'students.user_id', '=', 'users.id')
             ->leftJoin('registrations', 'students.registration_id', '=', 'registrations.id')
             ->where(function ($q) use ($email, $phone) {
+                $hasAny = false;
+
                 if (!empty($email)) {
+                    $hasAny = true;
                     $q->where('users.email', $email)
                         ->orWhere('registrations.personal_email', $email);
                 }
+
                 if (!empty($phone)) {
-                    $q->orWhere('registrations.phone_number', $phone);
+                    if ($hasAny) $q->orWhere('registrations.phone_number', $phone);
+                    else $q->where('registrations.phone_number', $phone);
                 }
             })
-            ->select('students.id', 'students.student_code', 'students.user_id', 'students.registration_id', 'students.department_id')
+            ->select(
+                'students.id as student_id',
+                'students.student_code',
+                'students.user_id',
+                'students.registration_id',
+                'students.department_id'
+            )
             ->orderByDesc('students.id')
             ->first();
     }
+
 
     private function assertMajorCanPayOrFail(int $majorId, string $academicYear): void
     {
@@ -159,10 +177,11 @@ class PaymentController extends Controller
 
     public function generateQr(Request $request)
     {
-        Log::info('🔥 generateQr hit');
+        Log::info('🔥 generateQr hit', ['payload' => $request->all()]);
 
+        // ✅ Don’t use exists:registrations,id (it returns confusing “invalid”)
         $request->validate([
-            'registration_id' => 'required|exists:registrations,id',
+            'registration_id' => 'required|integer|min:1',
             'semester' => 'nullable|integer|in:1,2',
             'pay_plan' => 'nullable|array',
             'pay_plan.type' => 'nullable|string',     // SEMESTER | YEAR
@@ -170,89 +189,100 @@ class PaymentController extends Controller
         ]);
 
         $semester = $this->normalizeSemester($request->input('semester', 1));
-        $payPlan = $this->normalizePayPlan($request->input('pay_plan', null), $semester);
+        $payPlan  = $this->normalizePayPlan($request->input('pay_plan', null), $semester);
 
         DB::beginTransaction();
 
         try {
+            // ✅ Get registration + fee
             $registration = DB::table('registrations')
                 ->join('majors', 'registrations.major_id', '=', 'majors.id')
-                ->where('registrations.id', $request->registration_id)
+                ->where('registrations.id', (int)$request->registration_id)
                 ->select('registrations.*', 'majors.registration_fee')
                 ->first();
 
             if (!$registration) {
                 DB::rollBack();
-                return response()->json(['error' => 'Invalid registration'], 400);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Registration not found. Use registration_id returned from /api/register/save',
+                    'registration_id' => (int)$request->registration_id,
+                ], 404);
             }
 
+            // ✅ Find student (NO create here)
             $student = $this->findStudentByRegistrationOrContact(
-                (int) $registration->id,
+                (int)$registration->id,
                 $registration->personal_email ?? null,
                 $registration->phone_number ?? null
             );
 
             if (!$student) {
                 DB::rollBack();
-                return response()->json(['error' => 'Student not found for this registration'], 404);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Student not found for this registration. Make sure registration created student successfully.',
+                    'registration_id' => (int)$registration->id,
+                ], 404);
             }
 
-            $yearFee = (float) ($registration->registration_fee ?? 0);
-            $amountFloat = $payPlan['type'] === 'YEAR'
-                ? $yearFee
-                : ($yearFee * 0.5);
+            // ✅ IMPORTANT FIX: correct student id field name
+            $studentId = (int)$student->student_id;
 
-            $amount = number_format((float) $amountFloat, 2, '.', '');
+            $yearFee = (float)($registration->registration_fee ?? 0);
+            if ($yearFee <= 0) {
+                DB::rollBack();
+                return response()->json(['success' => false, 'message' => 'Invalid registration fee'], 422);
+            }
 
-            // ✅ Ensure academic period exists without resetting payment
-            // If YEAR plan: ensure both semesters exist
+            $amountFloat = ($payPlan['type'] === 'YEAR') ? $yearFee : ($yearFee * 0.5);
+            $amount      = number_format((float)$amountFloat, 2, '.', '');
+
+            // ✅ Ensure academic period exists WITHOUT resetting PAID
             if ($payPlan['type'] === 'YEAR') {
-                $this->ensureAcademicPeriodNoReset((int) $student->id, (string) $registration->academic_year, 1, $yearFee * 0.5);
-                $this->ensureAcademicPeriodNoReset((int) $student->id, (string) $registration->academic_year, 2, $yearFee * 0.5);
+                $this->ensureAcademicPeriodNoReset($studentId, (string)$registration->academic_year, 1, $yearFee * 0.5);
+                $this->ensureAcademicPeriodNoReset($studentId, (string)$registration->academic_year, 2, $yearFee * 0.5);
 
-                // If already paid BOTH semesters => block
                 $p1 = DB::table('student_academic_periods')
-                    ->where('student_id', $student->id)
+                    ->where('student_id', $studentId)
                     ->where('academic_year', $registration->academic_year)
                     ->where('semester', 1)
                     ->first();
 
                 $p2 = DB::table('student_academic_periods')
-                    ->where('student_id', $student->id)
+                    ->where('student_id', $studentId)
                     ->where('academic_year', $registration->academic_year)
                     ->where('semester', 2)
                     ->first();
 
                 if ($p1 && $p2 && strtoupper((string)$p1->payment_status) === 'PAID' && strtoupper((string)$p2->payment_status) === 'PAID') {
                     DB::rollBack();
-                    return response()->json(['error' => 'Already paid full year.'], 409);
+                    return response()->json(['success' => false, 'message' => 'Already paid full year.'], 409);
                 }
             } else {
-                $this->ensureAcademicPeriodNoReset((int) $student->id, (string) $registration->academic_year, (int) $payPlan['semester'], $amountFloat);
+                $this->ensureAcademicPeriodNoReset($studentId, (string)$registration->academic_year, (int)$payPlan['semester'], $amountFloat);
 
                 $period = DB::table('student_academic_periods')
-                    ->where('student_id', $student->id)
+                    ->where('student_id', $studentId)
                     ->where('academic_year', $registration->academic_year)
                     ->where('semester', $payPlan['semester'])
                     ->first();
 
-                if ($period && strtoupper((string) $period->payment_status) === 'PAID') {
+                if ($period && strtoupper((string)$period->payment_status) === 'PAID') {
                     DB::rollBack();
-                    return response()->json(['error' => 'Already paid for this academic year and semester.'], 409);
+                    return response()->json(['success' => false, 'message' => 'Already paid for this academic year and semester.'], 409);
                 }
             }
 
             /* ================= REQUIRED FIELDS ================= */
-
             $reqTime    = now()->utc()->format('YmdHis');
             $merchantId = config('payway.merchant_id');
 
-            // ✅ tranId includes plan so callback can fallback parse if needed
             $tranId = $payPlan['type'] === 'YEAR'
                 ? ('REG-' . $registration->id . '-Y-' . time())
                 : ('REG-' . $registration->id . '-S' . $payPlan['semester'] . '-' . time());
 
-            // payment_transactions record
+            // ✅ Save transaction
             $txData = [
                 'amount' => $amount,
                 'status' => 'PENDING',
@@ -262,10 +292,9 @@ class PaymentController extends Controller
             if (Schema::hasColumn('payment_transactions', 'created_at')) {
                 $txData['created_at'] = now();
             }
-
-            if (Schema::hasColumn('payment_transactions', 'student_id')) $txData['student_id'] = (int) $student->id;
-            if (Schema::hasColumn('payment_transactions', 'academic_year')) $txData['academic_year'] = (string) $registration->academic_year;
-            if (Schema::hasColumn('payment_transactions', 'semester')) $txData['semester'] = $payPlan['type'] === 'YEAR' ? null : (int) $payPlan['semester'];
+            if (Schema::hasColumn('payment_transactions', 'student_id')) $txData['student_id'] = $studentId;
+            if (Schema::hasColumn('payment_transactions', 'academic_year')) $txData['academic_year'] = (string)$registration->academic_year;
+            if (Schema::hasColumn('payment_transactions', 'semester')) $txData['semester'] = $payPlan['type'] === 'YEAR' ? null : (int)$payPlan['semester'];
             if (Schema::hasColumn('payment_transactions', 'pay_plan_type')) $txData['pay_plan_type'] = $payPlan['type'];
 
             DB::table('payment_transactions')->updateOrInsert(
@@ -273,39 +302,29 @@ class PaymentController extends Controller
                 $txData
             );
 
-            // ✅ Save tran_id into period rows (if column exists)
+            // ✅ Save tran_id into periods (if column exists)
             if (Schema::hasColumn('student_academic_periods', 'tran_id')) {
                 if ($payPlan['type'] === 'YEAR') {
                     DB::table('student_academic_periods')
-                        ->where('student_id', $student->id)
+                        ->where('student_id', $studentId)
                         ->where('academic_year', $registration->academic_year)
                         ->whereIn('semester', [1, 2])
-                        ->update([
-                            'tran_id' => $tranId,
-                            'updated_at' => now(),
-                        ]);
+                        ->update(['tran_id' => $tranId, 'updated_at' => now()]);
                 } else {
                     DB::table('student_academic_periods')
-                        ->where('student_id', $student->id)
+                        ->where('student_id', $studentId)
                         ->where('academic_year', $registration->academic_year)
                         ->where('semester', $payPlan['semester'])
-                        ->update([
-                            'tran_id' => $tranId,
-                            'updated_at' => now(),
-                        ]);
+                        ->update(['tran_id' => $tranId, 'updated_at' => now()]);
                 }
             }
 
             $currency = 'USD';
 
-            /* ================= OPTIONAL PAYER INFO ================= */
-
             $firstName = trim($registration->first_name ?? '');
             $lastName  = trim($registration->last_name ?? '');
             $email     = trim($registration->personal_email ?? '');
             $phone     = preg_replace('/\D/', '', $registration->phone_number ?? '');
-
-            /* ================= BASE64 FIELDS ================= */
 
             $items = base64_encode(json_encode([[
                 'name'     => ($payPlan['type'] === 'YEAR') ? 'Tuition Fee (Full Year)' : ('Tuition Fee (Semester ' . $payPlan['semester'] . ')'),
@@ -322,8 +341,6 @@ class PaymentController extends Controller
             $qrImageTemplate = 'template3_color';
             $purchaseType    = 'purchase';
             $paymentOption   = 'abapay_khqr';
-
-            /* ================= HASH STRING ================= */
 
             $hashString =
                 $reqTime .
@@ -389,9 +406,9 @@ class PaymentController extends Controller
                 'tran_id' => $tranId,
                 'qr'      => $response->json(),
                 'meta'    => [
-                    'registration_id' => (int) $registration->id,
-                    'student_id'      => (int) $student->id,
-                    'academic_year'   => (string) $registration->academic_year,
+                    'registration_id' => (int)$registration->id,
+                    'student_id'      => (int)$studentId,
+                    'academic_year'   => (string)$registration->academic_year,
                     'pay_plan'        => $payPlan,
                     'amount'          => $amount,
                 ]
@@ -402,6 +419,7 @@ class PaymentController extends Controller
             return response()->json(['error' => 'failed', 'message' => $e->getMessage()], 500);
         }
     }
+
 
     public function paymentCallback(Request $request)
     {
