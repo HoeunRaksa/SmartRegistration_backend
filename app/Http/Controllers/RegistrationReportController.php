@@ -20,11 +20,13 @@ class RegistrationReportController extends Controller
                 'majors' => DB::table('majors')->count(),
                 'student_academic_periods' => DB::table('student_academic_periods')->count(),
             ],
-            'sample' => DB::table('registrations')->limit(1)->first(),
+            'sample_registration' => DB::table('registrations')->limit(1)->first(),
+            'sample_department' => DB::table('departments')->limit(1)->first(),
+            'sample_major' => DB::table('majors')->limit(1)->first(),
         ]);
     }
 
-    /* ================== CORE HELPERS ================== */
+    /* ================== HELPERS ================== */
 
     private function cleanUpper($v, $fallback = 'PENDING')
     {
@@ -37,45 +39,69 @@ class RegistrationReportController extends Controller
         return in_array($statusUpper, ['PAID', 'COMPLETED', 'SUCCESS', 'APPROVED', 'DONE'], true);
     }
 
-    private function isPending($statusUpper)
+    private function tableColumns(string $table): array
     {
-        return in_array($statusUpper, ['PENDING', 'UNPAID', 'NEW', 'INIT', 'PROCESSING', ''], true);
+        try {
+            return DB::getSchemaBuilder()->getColumnListing($table);
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function hasColumn(string $table, string $col): bool
+    {
+        try {
+            return DB::getSchemaBuilder()->hasColumn($table, $col);
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /**
-     * Build a query that returns registrations with:
-     * - department_name, major_name, student_code
-     * - period_* fields from student_academic_periods (NEW FLOW)
-     *
-     * ✅ IMPORTANT FIX:
-     * Your DB schema has students.registration_id (NOT registrations.student_id)
-     * So we join:
-     *   students s ON s.registration_id = r.id
-     * And periods join by:
-     *   sap.student_id = s.id
-     *
-     * Key logic:
-     * - If semester is provided (1/2): join EXACT row for that semester (+ academic_year if provided)
-     * - If semester not provided: join "latest period row per student" (MySQL 5.7 compatible)
+     * Detect relation between registrations <-> students:
+     * A) students.registration_id = registrations.id  (your flow)
+     * B) registrations.student_id = students.id       (fallback)
+     */
+    private function joinStudent(&$q): array
+    {
+        $regHasStudentId = $this->hasColumn('registrations', 'student_id');
+        $studentHasRegistrationId = $this->hasColumn('students', 'registration_id');
+
+        if ($studentHasRegistrationId) {
+            $q->leftJoin('students as s', 's.registration_id', '=', 'r.id');
+            return ['mode' => 'students.registration_id', 'student_id_expr' => 's.id'];
+        }
+
+        if ($regHasStudentId) {
+            $q->leftJoin('students as s', 's.id', '=', 'r.student_id');
+            return ['mode' => 'registrations.student_id', 'student_id_expr' => 'r.student_id'];
+        }
+
+        $q->leftJoin('students as s', DB::raw('1'), '=', DB::raw('0'));
+        return ['mode' => 'none', 'student_id_expr' => 's.id'];
+    }
+
+    /**
+     * Build base query:
+     * - joins department, major, student
+     * - joins latest/exact student_academic_periods
      */
     private function baseReportQuery(Request $request)
     {
-        $semester = (int)($request->input('semester', 0)); // 0 = all
+        $semester = (int)($request->input('semester', 0));
         $academicYear = $request->input('academic_year', null);
 
         $q = DB::table('registrations as r')
             ->leftJoin('departments as d', 'd.id', '=', 'r.department_id')
-            ->leftJoin('majors as m', 'm.id', '=', 'r.major_id')
+            ->leftJoin('majors as m', 'm.id', '=', 'r.major_id');
 
-            // ✅ FIX: registration -> student via students.registration_id
-            ->leftJoin('students as s', 's.registration_id', '=', 'r.id');
+        $joinInfo = $this->joinStudent($q);
+        $studentIdExpr = $joinInfo['student_id_expr']; // "s.id" OR "r.student_id"
 
-        // ===== Join student_academic_periods as sap (NEW FLOW) =====
+        // ===== Join periods =====
         if ($semester === 1 || $semester === 2) {
-            // exact semester row
-            $q->leftJoin('student_academic_periods as sap', function ($join) use ($semester, $academicYear) {
-                // ✅ FIX: join using s.id (student id)
-                $join->on('sap.student_id', '=', 's.id')
+            $q->leftJoin('student_academic_periods as sap', function ($join) use ($semester, $academicYear, $studentIdExpr) {
+                $join->on('sap.student_id', '=', DB::raw($studentIdExpr))
                     ->where('sap.semester', '=', $semester);
 
                 if (!empty($academicYear)) {
@@ -83,8 +109,6 @@ class RegistrationReportController extends Controller
                 }
             });
         } else {
-            // no semester selected -> take latest period row per student (MySQL 5.7 compatible)
-            // If academic_year provided, take latest within that year.
             $sub = DB::table('student_academic_periods as p')
                 ->selectRaw('p.student_id, MAX(p.id) as max_id')
                 ->groupBy('p.student_id');
@@ -93,9 +117,8 @@ class RegistrationReportController extends Controller
                 $sub->where('p.academic_year', $academicYear);
             }
 
-            $q->leftJoinSub($sub, 'latest_p', function ($join) {
-                // ✅ FIX: latest_p.student_id join to s.id
-                $join->on('latest_p.student_id', '=', 's.id');
+            $q->leftJoinSub($sub, 'latest_p', function ($join) use ($studentIdExpr) {
+                $join->on('latest_p.student_id', '=', DB::raw($studentIdExpr));
             });
 
             $q->leftJoin('student_academic_periods as sap', function ($join) {
@@ -103,16 +126,22 @@ class RegistrationReportController extends Controller
             });
         }
 
+        // ✅ IMPORTANT FIX: department_name might be "name"
+        $deptNameSql = $this->hasColumn('departments', 'department_name')
+            ? 'd.department_name'
+            : ($this->hasColumn('departments', 'name') ? 'd.name' : 'NULL');
+
+        $majorNameSql = $this->hasColumn('majors', 'major_name')
+            ? 'm.major_name'
+            : ($this->hasColumn('majors', 'name') ? 'm.name' : 'NULL');
+
         // ===== Select =====
         $q->select([
             'r.*',
-
-            // flat fields for frontend + blade
-            DB::raw('d.department_name as department_name'),
-            DB::raw('m.major_name as major_name'),
+            DB::raw("$deptNameSql as department_name"),
+            DB::raw("$majorNameSql as major_name"),
             DB::raw('s.student_code as student_code'),
 
-            // period fields (what your frontend expects)
             DB::raw('sap.payment_status as period_payment_status'),
             DB::raw('sap.paid_at as period_paid_at'),
             DB::raw('sap.tuition_amount as period_tuition_amount'),
@@ -120,64 +149,48 @@ class RegistrationReportController extends Controller
             DB::raw('sap.academic_year as period_academic_year'),
         ]);
 
-        // ===== Filters (keep same behavior) =====
-        if ($request->filled('department_id')) {
-            $q->where('r.department_id', $request->department_id);
-        }
+        // ===== Filters =====
+        if ($request->filled('department_id')) $q->where('r.department_id', $request->department_id);
+        if ($request->filled('major_id')) $q->where('r.major_id', $request->major_id);
+        if ($request->filled('shift')) $q->where('r.shift', $request->shift);
+        if ($request->filled('gender')) $q->where('r.gender', $request->gender);
 
-        if ($request->filled('major_id')) {
-            $q->where('r.major_id', $request->major_id);
-        }
+        if ($request->filled('date_from')) $q->whereDate('r.created_at', '>=', $request->date_from);
+        if ($request->filled('date_to')) $q->whereDate('r.created_at', '<=', $request->date_to);
 
-        if ($request->filled('shift')) {
-            $q->where('r.shift', $request->shift);
-        }
-
-        if ($request->filled('gender')) {
-            $q->where('r.gender', $request->gender);
-        }
-
-        if ($request->filled('date_from')) {
-            $q->whereDate('r.created_at', '>=', $request->date_from);
-        }
-
-        if ($request->filled('date_to')) {
-            $q->whereDate('r.created_at', '<=', $request->date_to);
-        }
-
-        /**
-         * ✅ payment_status filter MUST check period first (new flow),
-         * then fallback old registrations.payment_status if period is null.
-         */
         if ($request->filled('payment_status')) {
             $target = strtoupper(trim($request->payment_status));
             $q->whereRaw('UPPER(TRIM(COALESCE(sap.payment_status, r.payment_status, "PENDING"))) = ?', [$target]);
         }
 
-        /**
-         * ✅ academic_year filter must apply to period academic_year first,
-         * but if no period row exists, allow fallback to r.academic_year (old data support).
-         */
         if ($request->filled('academic_year')) {
             $ay = $request->academic_year;
-            $q->where(function ($w) use ($ay) {
-                $w->where('sap.academic_year', $ay)
-                    ->orWhere(function ($w2) use ($ay) {
+            $regHasAy = $this->hasColumn('registrations', 'academic_year');
+
+            $q->where(function ($w) use ($ay, $regHasAy) {
+                $w->where('sap.academic_year', $ay);
+
+                if ($regHasAy) {
+                    $w->orWhere(function ($w2) use ($ay) {
                         $w2->whereNull('sap.academic_year')
                             ->where('r.academic_year', $ay);
                     });
+                }
             });
         }
 
-        // semester filter: only if explicitly provided (1/2)
         if ($semester === 1 || $semester === 2) {
-            // we already joined exact semester row; but keep safe fallback for old data
-            $q->where(function ($w) use ($semester) {
-                $w->where('sap.semester', $semester)
-                    ->orWhere(function ($w2) use ($semester) {
+            $regHasSem = $this->hasColumn('registrations', 'semester');
+
+            $q->where(function ($w) use ($semester, $regHasSem) {
+                $w->where('sap.semester', $semester);
+
+                if ($regHasSem) {
+                    $w->orWhere(function ($w2) use ($semester) {
                         $w2->whereNull('sap.semester')
                             ->where('r.semester', $semester);
                     });
+                }
             });
         }
 
@@ -188,240 +201,223 @@ class RegistrationReportController extends Controller
 
     public function generate(Request $request)
     {
-        $semester = (int)($request->input('semester', 0));
+        try {
+            $semester = (int)($request->input('semester', 0));
+            $rows = $this->baseReportQuery($request)->orderBy('r.created_at', 'desc')->get();
 
-        $query = $this->baseReportQuery($request);
+            $transformed = $rows->map(function ($reg) use ($semester) {
+                $status = $reg->period_payment_status ?? $reg->payment_status ?? 'PENDING';
+                $amount = $reg->period_tuition_amount ?? $reg->payment_amount ?? 0;
+                $paidAt  = $reg->period_paid_at ?? $reg->payment_date ?? null;
 
-        $rows = $query->orderBy('r.created_at', 'desc')->get();
+                $reportSemester = $reg->period_semester
+                    ?? ($this->hasColumn('registrations', 'semester') ? ($reg->semester ?? ($semester ?: null)) : ($semester ?: null));
 
-        // Transform for frontend (keep your structure)
-        $transformed = $rows->map(function ($reg) use ($semester) {
-            $status = $reg->period_payment_status ?? $reg->payment_status ?? 'PENDING';
-            $amount = $reg->period_tuition_amount ?? $reg->payment_amount ?? 0;
-            $paidAt = $reg->period_paid_at ?? $reg->payment_date ?? null;
+                $reportAcademicYear = $reg->period_academic_year
+                    ?? ($this->hasColumn('registrations', 'academic_year') ? ($reg->academic_year ?? null) : null);
 
-            // semester/year shown: period first, else fallback
-            $reportSemester = $reg->period_semester ?? ($reg->semester ?? ($semester ?: null));
-            $reportAcademicYear = $reg->period_academic_year ?? ($reg->academic_year ?? null);
+                return [
+                    'id' => $reg->id,
+                    'first_name' => $reg->first_name ?? null,
+                    'last_name' => $reg->last_name ?? null,
+                    'full_name_en' => $reg->full_name_en ?? null,
+                    'full_name_kh' => $reg->full_name_kh ?? null,
 
-            return [
-                'id' => $reg->id,
+                    'gender' => $reg->gender ?? null,
 
-                'first_name' => $reg->first_name ?? null,
-                'last_name' => $reg->last_name ?? null,
-                'full_name_en' => $reg->full_name_en ?? null,
-                'full_name_kh' => $reg->full_name_kh ?? null,
+                    'payment_status' => $status ?? 'PENDING',
+                    'payment_amount' => (float)($amount ?? 0),
+                    'payment_date' => $paidAt,
 
-                'gender' => $reg->gender ?? null,
-                'date_of_birth' => $reg->date_of_birth ?? null,
-                'personal_email' => $reg->personal_email ?? null,
-                'phone_number' => $reg->phone_number ?? null,
-                'address' => $reg->address ?? null,
+                    'semester' => $reportSemester,
+                    'academic_year' => $reportAcademicYear,
 
-                // ✅ effective payment info for report
-                'payment_status' => $status ?? 'PENDING',
-                'payment_amount' => (float)($amount ?? 0),
-                'payment_date' => $paidAt,
+                    'shift' => $reg->shift ?? null,
+                    'created_at' => $reg->created_at ? date('Y-m-d H:i:s', strtotime($reg->created_at)) : null,
 
-                // ✅ semester-aware fields
-                'semester' => $reportSemester,
-                'academic_year' => $reportAcademicYear,
+                    'department_name' => $reg->department_name ?? null,
+                    'major_name' => $reg->major_name ?? null,
+                    'student_code' => $reg->student_code ?? null,
 
-                'shift' => $reg->shift ?? null,
-                'batch' => $reg->batch ?? null,
-                'faculty' => $reg->faculty ?? null,
-                'created_at' => $reg->created_at ? date('Y-m-d H:i:s', strtotime($reg->created_at)) : null,
+                    'period_payment_status' => $reg->period_payment_status ?? null,
+                    'period_paid_at' => $reg->period_paid_at ?? null,
+                    'period_tuition_amount' => $reg->period_tuition_amount ?? null,
+                    'period_semester' => $reg->period_semester ?? null,
+                    'period_academic_year' => $reg->period_academic_year ?? null,
+                ];
+            });
 
-                // flat names (frontend uses these)
-                'department_name' => $reg->department_name ?? null,
-                'major_name' => $reg->major_name ?? null,
-                'student_code' => $reg->student_code ?? null,
+            $total = $transformed->count();
+            $male = $transformed->filter(fn($r) => strtolower(trim((string)($r['gender'] ?? ''))) === 'male')->count();
+            $female = $transformed->filter(fn($r) => strtolower(trim((string)($r['gender'] ?? ''))) === 'female')->count();
 
-                // ✅ period fields (frontend helpers use these first)
-                'period_payment_status' => $reg->period_payment_status ?? null,
-                'period_paid_at' => $reg->period_paid_at ?? null,
-                'period_tuition_amount' => $reg->period_tuition_amount ?? null,
-                'period_semester' => $reg->period_semester ?? null,
-                'period_academic_year' => $reg->period_academic_year ?? null,
-            ];
-        });
+            $pending = 0;
+            $completed = 0;
+            $totalAmount = 0.0;
+            $paidAmount = 0.0;
 
-        // Stats computed from transformed (so UI matches)
-        $total = $transformed->count();
-        $male = $transformed->filter(fn($r) => strtolower(trim((string)($r['gender'] ?? ''))) === 'male')->count();
-        $female = $transformed->filter(fn($r) => strtolower(trim((string)($r['gender'] ?? ''))) === 'female')->count();
+            foreach ($transformed as $r) {
+                $statusU = $this->cleanUpper($r['payment_status'] ?? 'PENDING');
+                $amt = (float)($r['payment_amount'] ?? 0);
 
-        $paymentPending = 0;
-        $paymentCompleted = 0;
-        $totalAmount = 0.0;
-        $paidAmount = 0.0;
+                $totalAmount += $amt;
 
-        foreach ($transformed as $r) {
-            $statusU = $this->cleanUpper($r['payment_status'] ?? 'PENDING');
-            $amt = (float)($r['payment_amount'] ?? 0);
-
-            $totalAmount += $amt;
-
-            if ($this->isPaid($statusU)) {
-                $paymentCompleted++;
-                $paidAmount += $amt;
-            } else {
-                $paymentPending++;
+                if ($this->isPaid($statusU)) {
+                    $completed++;
+                    $paidAmount += $amt;
+                } else {
+                    $pending++;
+                }
             }
+
+            $stats = [
+                'total_registrations' => $total,
+                'total_male' => $male,
+                'total_female' => $female,
+                'payment_pending' => $pending,
+                'payment_completed' => $completed,
+                'total_amount' => (float)$totalAmount,
+                'paid_amount' => (float)$paidAmount,
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'registrations' => $transformed,
+                    'statistics' => $stats,
+                    'filters' => $request->all(),
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            \Log::error('Registration report generate failed', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Internal Server Error (generate)',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        $stats = [
-            'total_registrations' => $total,
-            'total_male' => $male,
-            'total_female' => $female,
-            'payment_pending' => $paymentPending,
-            'payment_completed' => $paymentCompleted,
-            'total_amount' => (float)$totalAmount,
-            'paid_amount' => (float)$paidAmount,
-        ];
-
-        // by_department / by_major (use transformed flat names)
-        $by_department = $transformed
-            ->filter(fn($r) => !empty($r['department_name']))
-            ->groupBy('department_name')
-            ->map(function ($items) {
-                $male = $items->filter(fn($r) => strtolower(trim((string)($r['gender'] ?? ''))) === 'male')->count();
-                $female = $items->filter(fn($r) => strtolower(trim((string)($r['gender'] ?? ''))) === 'female')->count();
-                return [
-                    'count' => $items->count(),
-                    'male' => $male,
-                    'female' => $female,
-                ];
-            });
-
-        $by_major = $transformed
-            ->filter(fn($r) => !empty($r['major_name']))
-            ->groupBy('major_name')
-            ->map(function ($items) {
-                $male = $items->filter(fn($r) => strtolower(trim((string)($r['gender'] ?? ''))) === 'male')->count();
-                $female = $items->filter(fn($r) => strtolower(trim((string)($r['gender'] ?? ''))) === 'female')->count();
-                return [
-                    'count' => $items->count(),
-                    'male' => $male,
-                    'female' => $female,
-                ];
-            });
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'registrations' => $transformed,
-                'statistics' => $stats,
-                'by_department' => $by_department,
-                'by_major' => $by_major,
-                'filters' => $request->all(),
-            ],
-        ]);
     }
 
     /* ================== EXPORT PDF ================== */
 
     public function exportPdf(Request $request)
     {
-        $semester = (int)($request->input('semester', 0));
+        try {
+            $semester = (int)($request->input('semester', 0));
+            $rows = $this->baseReportQuery($request)->orderBy('r.created_at', 'desc')->get();
 
-        // IMPORTANT: Use same query as generate()
-        $rows = $this->baseReportQuery($request)
-            ->orderBy('r.created_at', 'desc')
-            ->get();
+            $totalAmount = 0.0;
+            $paidAmount = 0.0;
+            $pendingCount = 0;
+            $completedCount = 0;
 
-        // Build stats from effective (period-first) fields for PDF
-        $totalAmount = 0.0;
-        $paidAmount = 0.0;
-        $pendingCount = 0;
-        $completedCount = 0;
+            foreach ($rows as $r) {
+                $statusU = $this->cleanUpper($r->period_payment_status ?? $r->payment_status ?? 'PENDING');
+                $amt = (float)($r->period_tuition_amount ?? $r->payment_amount ?? 0);
 
-        foreach ($rows as $r) {
-            $statusU = $this->cleanUpper($r->period_payment_status ?? $r->payment_status ?? 'PENDING');
-            $amt = (float)($r->period_tuition_amount ?? $r->payment_amount ?? 0);
+                $totalAmount += $amt;
 
-            $totalAmount += $amt;
-
-            if ($this->isPaid($statusU)) {
-                $completedCount++;
-                $paidAmount += $amt;
-            } else {
-                $pendingCount++;
+                if ($this->isPaid($statusU)) {
+                    $completedCount++;
+                    $paidAmount += $amt;
+                } else {
+                    $pendingCount++;
+                }
             }
+
+            $stats = [
+                'total_registrations' => $rows->count(),
+                'total_male' => $rows->filter(fn($r) => strtolower(trim((string)($r->gender ?? ''))) === 'male')->count(),
+                'total_female' => $rows->filter(fn($r) => strtolower(trim((string)($r->gender ?? ''))) === 'female')->count(),
+                'payment_pending' => $pendingCount,
+                'payment_completed' => $completedCount,
+                'total_amount' => (float)$totalAmount,
+                'paid_amount' => (float)$paidAmount,
+            ];
+
+            $data = [
+                'registrations' => $rows,
+                'stats' => $stats,
+                'filters' => $request->all(),
+                'semester' => $semester,
+                'generated_date' => now()->format('F d, Y H:i:s'),
+            ];
+
+            $pdf = Pdf::loadView('reports.registration', $data)->setPaper('a4', 'landscape');
+
+            $filename = 'registration_report_' . now()->format('YmdHis') . '.pdf';
+            return $pdf->download($filename);
+        } catch (\Throwable $e) {
+            \Log::error('Registration report pdf failed', ['message' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Internal Server Error (pdf)',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        $stats = [
-            'total_registrations' => $rows->count(),
-            'total_male' => $rows->filter(fn($r) => strtolower(trim((string)($r->gender ?? ''))) === 'male')->count(),
-            'total_female' => $rows->filter(fn($r) => strtolower(trim((string)($r->gender ?? ''))) === 'female')->count(),
-            'payment_pending' => $pendingCount,
-            'payment_completed' => $completedCount,
-            'total_amount' => (float)$totalAmount,
-            'paid_amount' => (float)$paidAmount,
-        ];
-
-        $data = [
-            'registrations' => $rows, // blade uses $reg->period_* and fallback; we provide them
-            'stats' => $stats,
-            'filters' => $request->all(),
-            'semester' => $semester,
-            'generated_date' => now()->format('F d, Y H:i:s'),
-        ];
-
-        $pdf = Pdf::loadView('reports.registration', $data)->setPaper('a4', 'landscape');
-
-        $filename = 'registration_report_' . now()->format('YmdHis') . '.pdf';
-        return $pdf->download($filename);
     }
 
     /* ================== SUMMARY ================== */
 
     public function summary(Request $request)
     {
-        $rows = $this->baseReportQuery($request)->get();
+        try {
+            $rows = $this->baseReportQuery($request)->get();
 
-        $pending = 0;
-        $completed = 0;
-        $failed = 0;
-        $paidAmount = 0.0;
-        $pendingAmount = 0.0;
+            $pending = 0;
+            $completed = 0;
+            $failed = 0;
+            $paidAmount = 0.0;
+            $pendingAmount = 0.0;
 
-        foreach ($rows as $r) {
-            $statusU = $this->cleanUpper($r->period_payment_status ?? $r->payment_status ?? 'PENDING');
-            $amt = (float)($r->period_tuition_amount ?? $r->payment_amount ?? 0);
+            foreach ($rows as $r) {
+                $statusU = $this->cleanUpper($r->period_payment_status ?? $r->payment_status ?? 'PENDING');
+                $amt = (float)($r->period_tuition_amount ?? $r->payment_amount ?? 0);
 
-            if ($this->isPaid($statusU)) {
-                $completed++;
-                $paidAmount += $amt;
-            } elseif ($statusU === 'FAILED') {
-                $failed++;
-                $pendingAmount += $amt;
-            } else {
-                $pending++;
-                $pendingAmount += $amt;
+                if ($this->isPaid($statusU)) {
+                    $completed++;
+                    $paidAmount += $amt;
+                } elseif ($statusU === 'FAILED') {
+                    $failed++;
+                    $pendingAmount += $amt;
+                } else {
+                    $pending++;
+                    $pendingAmount += $amt;
+                }
             }
+
+            $summary = [
+                'total_registrations' => $rows->count(),
+                'by_gender' => [
+                    'male' => $rows->filter(fn($r) => strtolower(trim((string)($r->gender ?? ''))) === 'male')->count(),
+                    'female' => $rows->filter(fn($r) => strtolower(trim((string)($r->gender ?? ''))) === 'female')->count(),
+                ],
+                'by_payment_status' => [
+                    'pending' => $pending,
+                    'completed' => $completed,
+                    'failed' => $failed,
+                ],
+                'financial' => [
+                    'paid_amount' => (float)$paidAmount,
+                    'pending_amount' => (float)$pendingAmount,
+                ],
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $summary,
+            ]);
+        } catch (\Throwable $e) {
+            \Log::error('Registration report summary failed', ['message' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Internal Server Error (summary)',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        $summary = [
-            'total_registrations' => $rows->count(),
-            'by_gender' => [
-                'male' => $rows->filter(fn($r) => strtolower(trim((string)($r->gender ?? ''))) === 'male')->count(),
-                'female' => $rows->filter(fn($r) => strtolower(trim((string)($r->gender ?? ''))) === 'female')->count(),
-            ],
-            'by_payment_status' => [
-                'pending' => $pending,
-                'completed' => $completed,
-                'failed' => $failed,
-            ],
-            'financial' => [
-                'paid_amount' => (float)$paidAmount,
-                'pending_amount' => (float)$pendingAmount,
-            ],
-        ];
-
-        return response()->json([
-            'success' => true,
-            'data' => $summary,
-        ]);
     }
 }
