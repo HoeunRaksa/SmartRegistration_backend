@@ -126,74 +126,74 @@ class RegistrationController extends Controller
     }
 
 
-public function canRegister(Request $request)
-{
-    $request->validate([
-        'major_id' => 'required|integer|exists:majors,id',
-        'academic_year' => 'required|string|max:20',
-    ]);
-
-    $majorId = (int) $request->major_id;
-    $academicYear = (string) $request->academic_year;
-
-    $quota = DB::table('major_quotas')
-        ->where('major_id', $majorId)
-        ->where('academic_year', $academicYear)
-        ->first();
-
-    if (!$quota) {
-        return response()->json([
-            'allowed' => false,
-            'reason' => 'NOT_CONFIGURED',
-            'message' => 'Registration is not configured yet for this major/year. Please try again later.',
+    public function canRegister(Request $request)
+    {
+        $request->validate([
+            'major_id' => 'required|integer|exists:majors,id',
+            'academic_year' => 'required|string|max:20',
         ]);
-    }
 
-    $now = now();
+        $majorId = (int) $request->major_id;
+        $academicYear = (string) $request->academic_year;
 
-    if (!empty($quota->opens_at) && $now->lt($quota->opens_at)) {
-        return response()->json([
-            'allowed' => false,
-            'reason' => 'NOT_OPEN_YET',
-            'message' => 'Registration is not open yet for this major/year.',
-            'opens_at' => $quota->opens_at,
-        ]);
-    }
-
-    if (!empty($quota->closes_at) && $now->gt($quota->closes_at)) {
-        return response()->json([
-            'allowed' => false,
-            'reason' => 'CLOSED',
-            'message' => 'Registration is closed for this major/year.',
-            'closes_at' => $quota->closes_at,
-        ]);
-    }
-
-    if ($quota->limit !== null) {
-        $limit = (int) $quota->limit;
-
-        $used = (int) DB::table('registrations')
+        $quota = DB::table('major_quotas')
             ->where('major_id', $majorId)
             ->where('academic_year', $academicYear)
-            ->count();
+            ->first();
 
-        if ($used >= $limit) {
+        if (!$quota) {
             return response()->json([
                 'allowed' => false,
-                'reason' => 'FULL',
-                'message' => 'This major is full for this academic year. Please choose another major.',
-                'limit' => $limit,
-                'used' => $used,
+                'reason' => 'NOT_CONFIGURED',
+                'message' => 'Registration is not configured yet for this major/year. Please try again later.',
             ]);
         }
-    }
 
-    return response()->json([
-        'allowed' => true,
-        'reason' => null,
-        'message' => 'OK',
-    ]);
-}
+        $now = now();
+
+        if (!empty($quota->opens_at) && $now->lt($quota->opens_at)) {
+            return response()->json([
+                'allowed' => false,
+                'reason' => 'NOT_OPEN_YET',
+                'message' => 'Registration is not open yet for this major/year.',
+                'opens_at' => $quota->opens_at,
+            ]);
+        }
+
+        if (!empty($quota->closes_at) && $now->gt($quota->closes_at)) {
+            return response()->json([
+                'allowed' => false,
+                'reason' => 'CLOSED',
+                'message' => 'Registration is closed for this major/year.',
+                'closes_at' => $quota->closes_at,
+            ]);
+        }
+
+        if ($quota->limit !== null) {
+            $limit = (int) $quota->limit;
+
+            $used = (int) DB::table('registrations')
+                ->where('major_id', $majorId)
+                ->where('academic_year', $academicYear)
+                ->count();
+
+            if ($used >= $limit) {
+                return response()->json([
+                    'allowed' => false,
+                    'reason' => 'FULL',
+                    'message' => 'This major is full for this academic year. Please choose another major.',
+                    'limit' => $limit,
+                    'used' => $used,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'allowed' => true,
+            'reason' => null,
+            'message' => 'OK',
+        ]);
+    }
 
 
 
@@ -599,53 +599,76 @@ public function canRegister(Request $request)
         }
     }
 
-public function index(Request $request)
-{
-    $semester = $this->normalizeSemester($request->input('semester', 1));
+    public function index(Request $request)
+    {
+        $registrations = DB::table('registrations as r')
+            ->join('departments as d', 'r.department_id', '=', 'd.id')
+            ->join('majors as m', 'r.major_id', '=', 'm.id')
 
-    $registrations = DB::table('registrations as r')
-        ->join('departments as d', 'r.department_id', '=', 'd.id')
-        ->join('majors as m', 'r.major_id', '=', 'm.id')
+            // link user by email
+            ->leftJoin('users as u', 'u.email', '=', 'r.personal_email')
 
-        // link user by email
-        ->leftJoin('users as u', 'u.email', '=', 'r.personal_email')
+            // ✅ MUST exist
+            ->join('students as s', function ($join) {
+                $join->on('s.user_id', '=', 'u.id');
+            })
 
-        // ✅ MUST exist
-        ->join('students as s', function ($join) {
-            $join->on('s.user_id', '=', 'u.id');
-        })
+            // ✅ Join semester 1
+            ->leftJoin('student_academic_periods as sap1', function ($join) {
+                $join->on('sap1.student_id', '=', 's.id')
+                    ->on('sap1.academic_year', '=', 'r.academic_year')
+                    ->where('sap1.semester', '=', 1);
+            })
 
-        // period (still left join because may not exist yet)
-        ->leftJoin('student_academic_periods as sap', function ($join) use ($semester) {
-            $join->on('sap.student_id', '=', 's.id')
-                ->on('sap.academic_year', '=', 'r.academic_year')
-                ->where('sap.semester', '=', $semester);
-        })
+            // ✅ Join semester 2
+            ->leftJoin('student_academic_periods as sap2', function ($join) {
+                $join->on('sap2.student_id', '=', 's.id')
+                    ->on('sap2.academic_year', '=', 'r.academic_year')
+                    ->where('sap2.semester', '=', 2);
+            })
 
-        ->select(
-            'r.*',
-            DB::raw('d.name as department_name'),
-            'm.major_name',
-            'm.registration_fee',
-            's.student_code',
-            DB::raw('s.id as student_id'),
-            DB::raw('COALESCE(sap.payment_status, "PENDING") as period_payment_status'),
-            'sap.paid_at as period_paid_at',
-            'sap.tuition_amount as period_tuition_amount',
-            DB::raw($semester . ' as period_semester')
-        )
-        ->orderBy('r.created_at', 'desc')
-        ->get();
+            ->select(
+                'r.*',
+                DB::raw('d.name as department_name'),
+                'm.major_name',
+                'm.registration_fee',
 
-    $registrations = $registrations->map(function ($reg) {
-        if (!empty($reg->profile_picture_path)) {
-            $reg->profile_picture_url = url($reg->profile_picture_path);
-        }
-        return $reg;
-    });
+                's.student_code',
+                DB::raw('s.id as student_id'),
 
-    return response()->json(['success' => true, 'data' => $registrations]);
-}
+                // semester 1 info
+                DB::raw('COALESCE(sap1.payment_status, "PENDING") as sem1_payment_status'),
+                'sap1.paid_at as sem1_paid_at',
+                'sap1.tuition_amount as sem1_tuition_amount',
+
+                // semester 2 info
+                DB::raw('COALESCE(sap2.payment_status, "PENDING") as sem2_payment_status'),
+                'sap2.paid_at as sem2_paid_at',
+                'sap2.tuition_amount as sem2_tuition_amount',
+
+                // ✅ computed YEAR status: PAID only if both semesters PAID
+                DB::raw("
+                CASE
+                    WHEN UPPER(COALESCE(sap1.payment_status,'PENDING')) = 'PAID'
+                     AND UPPER(COALESCE(sap2.payment_status,'PENDING')) = 'PAID'
+                    THEN 'PAID'
+                    ELSE 'PENDING'
+                END as year_payment_status
+            ")
+            )
+            ->orderBy('r.created_at', 'desc')
+            ->get();
+
+        $registrations = $registrations->map(function ($reg) {
+            if (!empty($reg->profile_picture_path)) {
+                $reg->profile_picture_url = url($reg->profile_picture_path);
+            }
+            return $reg;
+        });
+
+        return response()->json(['success' => true, 'data' => $registrations]);
+    }
+
 
 
     public function payLater($id)
