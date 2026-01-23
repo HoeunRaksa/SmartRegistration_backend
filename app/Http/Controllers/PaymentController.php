@@ -183,8 +183,8 @@ class PaymentController extends Controller
         $request->validate([
             'registration_id' => 'required|integer|min:1',
             'semester' => 'nullable|integer|in:1,2',
-            'pay_plan' => 'nullable|array',
-            'pay_plan.type' => 'nullable|string',     // SEMESTER | YEAR
+           'pay_plan' => 'nullable|array',
+           'pay_plan.type' => 'nullable|in:SEMESTER,YEAR',
             'pay_plan.semester' => 'nullable|integer|in:1,2',
         ]);
 
