@@ -522,10 +522,8 @@ public function summary(Request $request)
         return response()->json([
             'success' => false,
             'message' => 'Summary failed',
-            'error' => $e->getMessage(), // keep for now, remove later in production
+            'error' => $e->getMessage(),
         ], 500);
     }
-}
-
-
+ }
 }
