@@ -67,6 +67,8 @@ class ChatController extends Controller
 
         // ✅ REALTIME PUSH
         broadcast(new \App\Events\MessageSent($message))->toOthers();
+
+        return response()->json($message, 201);
     }
 
     public function conversations(Request $request)
