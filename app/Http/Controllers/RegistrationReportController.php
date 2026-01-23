@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
-
+use Illuminate\Support\Facades\Log;
 class RegistrationReportController extends Controller
 {
     /* ================== TEST ================== */
@@ -289,7 +289,7 @@ class RegistrationReportController extends Controller
                 ],
             ]);
         } catch (\Throwable $e) {
-            \Log::error('Registration report generate failed', [
+            Log::error('Registration report generate failed', [
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -352,7 +352,7 @@ class RegistrationReportController extends Controller
             $filename = 'registration_report_' . now()->format('YmdHis') . '.pdf';
             return $pdf->download($filename);
         } catch (\Throwable $e) {
-            \Log::error('Registration report pdf failed', ['message' => $e->getMessage()]);
+            Log::error('Registration report pdf failed', ['message' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => 'Internal Server Error (pdf)',
@@ -412,7 +412,7 @@ class RegistrationReportController extends Controller
                 'data' => $summary,
             ]);
         } catch (\Throwable $e) {
-            \Log::error('Registration report summary failed', ['message' => $e->getMessage()]);
+            Log::error('Registration report summary failed', ['message' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => 'Internal Server Error (summary)',
