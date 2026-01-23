@@ -8,8 +8,6 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
-use Carbon\Carbon;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use App\Models\Student;
 use App\Models\User;
 use App\Models\Major;
@@ -19,6 +17,8 @@ class RegistrationController extends Controller
     /* ============================================================
      * ✅ FIX 1: NEVER overwrite PAID -> PENDING
      * ✅ FIX 2: INDEX join must not attach wrong student (no OR join)
+     * ✅ FIX 3: findStudentByRegistrationOrContact must return student_id (students.id)
+     * ✅ FIX 4: payLater/markPaidCash must use students.id (not registrations.id)
      * ============================================================ */
 
     private function normalizeSemester($semester): int
@@ -36,12 +36,19 @@ class RegistrationController extends Controller
 
     /**
      * ✅ Find student by direct registration_id OR by contact (safe for old+new flow)
+     * IMPORTANT: returns students.id as student_id (so other methods don't mix ids)
      */
     private function findStudentByRegistrationOrContact(int $registrationId, ?string $email, ?string $phone)
     {
         $student = DB::table('students')
             ->where('registration_id', $registrationId)
-            ->select('id', 'student_code', 'user_id', 'registration_id', 'department_id')
+            ->select(
+                'students.id as student_id',
+                'students.student_code',
+                'students.user_id',
+                'students.registration_id',
+                'students.department_id'
+            )
             ->first();
 
         if ($student) return $student;
@@ -50,15 +57,29 @@ class RegistrationController extends Controller
             ->leftJoin('users', 'students.user_id', '=', 'users.id')
             ->leftJoin('registrations', 'students.registration_id', '=', 'registrations.id')
             ->where(function ($q) use ($email, $phone) {
+                $hasAny = false;
+
                 if (!empty($email)) {
+                    $hasAny = true;
                     $q->where('users.email', $email)
-                        ->orWhere('registrations.personal_email', $email);
+                      ->orWhere('registrations.personal_email', $email);
                 }
+
                 if (!empty($phone)) {
-                    $q->orWhere('registrations.phone_number', $phone);
+                    if ($hasAny) {
+                        $q->orWhere('registrations.phone_number', $phone);
+                    } else {
+                        $q->where('registrations.phone_number', $phone);
+                    }
                 }
             })
-            ->select('students.id', 'students.student_code', 'students.user_id', 'students.registration_id', 'students.department_id')
+            ->select(
+                'students.id as student_id',
+                'students.student_code',
+                'students.user_id',
+                'students.registration_id',
+                'students.department_id'
+            )
             ->orderByDesc('students.id')
             ->first();
     }
@@ -94,7 +115,6 @@ class RegistrationController extends Controller
             ], 409));
         }
 
-        // ✅ capacity check only if limit is set (nullable limit recommended)
         if ($quota->limit !== null) {
             $limit = (int) $quota->limit;
 
@@ -124,14 +144,13 @@ class RegistrationController extends Controller
             ->lockForUpdate()
             ->first();
 
-        // If no quota config => allow payment (unlimited paid seats)
         if (!$quota) return;
 
         $now = now();
 
         /* ===========================
-       ⏰ PAYMENT DEADLINE CHECK
-       =========================== */
+           ⏰ PAYMENT DEADLINE CHECK
+           =========================== */
         $deadlineDays = (int) ($quota->pay_deadline_days ?? 7);
 
         if ($deadlineDays > 0) {
@@ -153,8 +172,8 @@ class RegistrationController extends Controller
         }
 
         /* ===========================
-       💰 PAID SEAT LIMIT CHECK
-       =========================== */
+           💰 PAID SEAT LIMIT CHECK
+           =========================== */
         $paidLimit = (int) ($quota->paid_limit ?? 0);
 
         if ($paidLimit > 0) {
@@ -179,11 +198,20 @@ class RegistrationController extends Controller
         }
     }
 
+    private function cleanUpper($v, $fallback = 'PENDING')
+    {
+        $s = strtoupper(trim((string)($v ?? '')));
+        return $s !== '' ? $s : $fallback;
+    }
 
+    private function isPaid($statusUpper)
+    {
+        return in_array($statusUpper, ['PAID', 'COMPLETED', 'SUCCESS', 'APPROVED', 'DONE'], true);
+    }
 
     /**
      * ✅ Ensure period exists WITHOUT overwriting paid status
-     * - Insert-only; if exists, we update only NON-payment fields
+     * - Insert-only; if exists, update only NON-payment fields
      */
     private function ensureAcademicPeriod(int $studentId, string $academicYear, int $semester, float $tuitionAmount): void
     {
@@ -194,12 +222,11 @@ class RegistrationController extends Controller
             ->first();
 
         if ($existing) {
-            // ✅ do NOT change payment_status or paid_at
             DB::table('student_academic_periods')
                 ->where('id', $existing->id)
                 ->update([
                     'status' => 'ACTIVE',
-                    'tuition_amount' => $tuitionAmount, // ok to refresh amount
+                    'tuition_amount' => $tuitionAmount,
                     'updated_at' => now(),
                 ]);
             return;
@@ -216,6 +243,29 @@ class RegistrationController extends Controller
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+    }
+
+    private function upsertAcademicPeriodNoCreatedAtOverwrite(
+        int $studentId,
+        string $academicYear,
+        int $semester,
+        array $data
+    ): void {
+        $updated = DB::table('student_academic_periods')
+            ->where('student_id', $studentId)
+            ->where('academic_year', $academicYear)
+            ->where('semester', $semester)
+            ->update(array_merge($data, ['updated_at' => now()]));
+
+        if ($updated === 0) {
+            DB::table('student_academic_periods')->insert(array_merge([
+                'student_id' => $studentId,
+                'academic_year' => $academicYear,
+                'semester' => $semester,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ], $data));
+        }
     }
 
     public function store(Request $request)
@@ -305,7 +355,7 @@ class RegistrationController extends Controller
                 ->where('semester', $semester)
                 ->first();
 
-            if ($period && strtoupper((string) $period->payment_status) === 'PAID') {
+            if ($period && $this->cleanUpper($period->payment_status) === 'PAID') {
                 return response()->json([
                     'success' => false,
                     'message' => 'Already paid for this academic year and semester.'
@@ -315,12 +365,13 @@ class RegistrationController extends Controller
 
         DB::beginTransaction();
 
+        $profilePicturePath = null;
+
         try {
             $this->assertMajorCanRegisterOrFail(
                 (int) $validated['major_id'],
                 (string) $validated['academic_year']
             );
-            $profilePicturePath = null;
 
             if ($request->hasFile('profile_picture') && $request->file('profile_picture')->isValid()) {
                 $uploadPath = public_path('uploads/profiles');
@@ -380,7 +431,7 @@ class RegistrationController extends Controller
 
             $registrationId = DB::table('registrations')->insertGetId($regData);
 
-            // Existing student path
+            // Existing student path (new year registration)
             if ($existingStudent) {
                 if ($profilePicturePath && !empty($existingStudent->user_id)) {
                     User::where('id', $existingStudent->user_id)->update([
@@ -388,7 +439,6 @@ class RegistrationController extends Controller
                     ]);
                 }
 
-                // ✅ ensure period exists but won't reset paid
                 $this->ensureAcademicPeriod(
                     (int) $existingStudent->student_id,
                     (string) $validated['academic_year'],
@@ -440,7 +490,6 @@ class RegistrationController extends Controller
                 'profile_picture_path' => $profilePicturePath,
             ]);
 
-            // ✅ ensure period exists but won't reset paid
             $this->ensureAcademicPeriod(
                 (int) $student->id,
                 (string) $validated['academic_year'],
@@ -474,7 +523,11 @@ class RegistrationController extends Controller
                 File::delete(public_path($profilePicturePath));
             }
 
-            Log::error('Registration store error: ' . $e->getMessage());
+            Log::error('Registration store error', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
 
             return response()->json([
                 'success' => false,
@@ -509,11 +562,12 @@ class RegistrationController extends Controller
 
             ->select(
                 'r.*',
-                'd.name as department_name',
+                // ✅ your departments table uses department_name (not name)
+                DB::raw('COALESCE(d.department_name, d.name) as department_name'),
                 'm.major_name',
                 'm.registration_fee',
                 's.student_code',
-                's.id as student_id',
+                DB::raw('s.id as student_id'),
                 DB::raw('COALESCE(sap.payment_status, "PENDING") as period_payment_status'),
                 'sap.paid_at as period_paid_at',
                 'sap.tuition_amount as period_tuition_amount',
@@ -531,8 +585,6 @@ class RegistrationController extends Controller
 
         return response()->json(['success' => true, 'data' => $registrations]);
     }
-
-
 
     public function payLater($id)
     {
@@ -560,24 +612,30 @@ class RegistrationController extends Controller
         }
 
         // ✅ ensure without overwriting PAID
-        $this->ensureAcademicPeriod((int) $student->id, (string) $reg->academic_year, (int) $semester, (float) $majorFee);
+        $this->ensureAcademicPeriod(
+            (int) $student->student_id,
+            (string) $reg->academic_year,
+            (int) $semester,
+            (float) $majorFee
+        );
 
         // ✅ do NOT force payment_status to pending if already paid
         $current = DB::table('student_academic_periods')
-            ->where('student_id', $student->id)
+            ->where('student_id', $student->student_id)
             ->where('academic_year', $reg->academic_year)
             ->where('semester', $semester)
             ->first();
 
-        if ($current && strtoupper((string)$current->payment_status) === 'PAID') {
+        if ($current && $this->cleanUpper($current->payment_status) === 'PAID') {
             return response()->json([
                 'success' => true,
                 'message' => 'Already paid for this semester.',
             ]);
         }
 
+        // ✅ only set to PENDING if not paid
         DB::table('student_academic_periods')
-            ->where('student_id', $student->id)
+            ->where('student_id', $student->student_id)
             ->where('academic_year', $reg->academic_year)
             ->where('semester', $semester)
             ->update([
@@ -589,29 +647,6 @@ class RegistrationController extends Controller
             'success' => true,
             'message' => 'Payment deferred. You can pay later at admin office.',
         ]);
-    }
-
-    private function upsertAcademicPeriodNoCreatedAtOverwrite(
-        int $studentId,
-        string $academicYear,
-        int $semester,
-        array $data
-    ): void {
-        $updated = DB::table('student_academic_periods')
-            ->where('student_id', $studentId)
-            ->where('academic_year', $academicYear)
-            ->where('semester', $semester)
-            ->update(array_merge($data, ['updated_at' => now()]));
-
-        if ($updated === 0) {
-            DB::table('student_academic_periods')->insert(array_merge([
-                'student_id' => $studentId,
-                'academic_year' => $academicYear,
-                'semester' => $semester,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ], $data));
-        }
     }
 
     public function markPaidCash($id, Request $request)
@@ -655,7 +690,7 @@ class RegistrationController extends Controller
 
             // ✅ Upsert PAID into student_academic_periods (NEW SOURCE OF TRUTH)
             $this->upsertAcademicPeriodNoCreatedAtOverwrite(
-                (int) $student->id,
+                (int) $student->student_id,
                 (string) $registration->academic_year,
                 (int) $semester,
                 [
@@ -674,9 +709,8 @@ class RegistrationController extends Controller
 
             DB::commit();
 
-            // ✅ Return what was saved so frontend can confirm immediately
             $period = DB::table('student_academic_periods')
-                ->where('student_id', $student->id)
+                ->where('student_id', $student->student_id)
                 ->where('academic_year', $registration->academic_year)
                 ->where('semester', $semester)
                 ->first();
@@ -686,7 +720,7 @@ class RegistrationController extends Controller
                 'message' => 'Marked as PAID (Cash).',
                 'debug' => [
                     'registration_id' => (int) $id,
-                    'student_id' => (int) $student->id,
+                    'student_id' => (int) $student->student_id,
                     'academic_year' => (string) $registration->academic_year,
                     'semester' => (int) $semester,
                     'period' => $period,
