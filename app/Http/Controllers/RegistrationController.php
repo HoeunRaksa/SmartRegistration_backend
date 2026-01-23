@@ -7,37 +7,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Schema;
+use App\Http\Controllers\HttpResponseException;
 use App\Models\Student;
 use App\Models\User;
 use App\Models\Major;
 
 class RegistrationController extends Controller
 {
-    /* ============================================================
-     * ✅ FIX 1: NEVER overwrite PAID -> PENDING
-     * ✅ FIX 2: INDEX join must not attach wrong student (no OR join)
-     * ✅ FIX 3: findStudentByRegistrationOrContact must return student_id (students.id)
-     * ✅ FIX 4: payLater/markPaidCash must use students.id (not registrations.id)
-     * ============================================================ */
 
-    private function normalizeSemester($semester): int
-    {
-        $s = (int) ($semester ?? 1);
-        return in_array($s, [1, 2], true) ? $s : 1;
-    }
-
-    private function putIfColumnExists(array &$data, string $table, string $column, $value): void
-    {
-        if (Schema::hasColumn($table, $column)) {
-            $data[$column] = $value;
-        }
-    }
-
-    /**
-     * ✅ Find student by direct registration_id OR by contact (safe for old+new flow)
-     * IMPORTANT: returns students.id as student_id (so other methods don't mix ids)
-     */
     private function findStudentByRegistrationOrContact(int $registrationId, ?string $email, ?string $phone)
     {
         $student = DB::table('students')
@@ -66,11 +43,8 @@ class RegistrationController extends Controller
                 }
 
                 if (!empty($phone)) {
-                    if ($hasAny) {
-                        $q->orWhere('registrations.phone_number', $phone);
-                    } else {
-                        $q->where('registrations.phone_number', $phone);
-                    }
+                    if ($hasAny) $q->orWhere('registrations.phone_number', $phone);
+                    else $q->where('registrations.phone_number', $phone);
                 }
             })
             ->select(
@@ -93,26 +67,26 @@ class RegistrationController extends Controller
             ->first();
 
         if (!$quota) {
-            abort(response()->json([
+            $this->jsonAbort([
                 'success' => false,
                 'message' => 'Registration is not configured yet for this major/year. Please try again later.',
-            ], 409));
+            ], 409);
         }
 
         $now = now();
 
         if (!empty($quota->opens_at) && $now->lt($quota->opens_at)) {
-            abort(response()->json([
+            $this->jsonAbort([
                 'success' => false,
                 'message' => 'Registration is not open yet for this major/year.',
-            ], 409));
+            ], 409);
         }
 
         if (!empty($quota->closes_at) && $now->gt($quota->closes_at)) {
-            abort(response()->json([
+            $this->jsonAbort([
                 'success' => false,
                 'message' => 'Registration is closed for this major/year.',
-            ], 409));
+            ], 409);
         }
 
         if ($quota->limit !== null) {
@@ -125,19 +99,16 @@ class RegistrationController extends Controller
                 ->count();
 
             if ($used >= $limit) {
-                abort(response()->json([
+                $this->jsonAbort([
                     'success' => false,
                     'message' => 'This major is full for this academic year. Please choose another major.',
-                ], 409));
+                ], 409);
             }
         }
     }
 
-    private function assertMajorCanPayOrFail(
-        int $majorId,
-        string $academicYear,
-        int $registrationId
-    ): void {
+    private function assertMajorCanPayOrFail(int $majorId, string $academicYear, int $registrationId): void
+    {
         $quota = DB::table('major_quotas')
             ->where('major_id', $majorId)
             ->where('academic_year', $academicYear)
@@ -148,9 +119,7 @@ class RegistrationController extends Controller
 
         $now = now();
 
-        /* ===========================
-           ⏰ PAYMENT DEADLINE CHECK
-           =========================== */
+        // ⏰ payment deadline
         $deadlineDays = (int) ($quota->pay_deadline_days ?? 7);
 
         if ($deadlineDays > 0) {
@@ -162,18 +131,16 @@ class RegistrationController extends Controller
             if ($reg) {
                 $expiredAt = \Carbon\Carbon::parse($reg->created_at)->addDays($deadlineDays);
                 if ($now->gt($expiredAt)) {
-                    abort(response()->json([
+                    $this->jsonAbort([
                         'success' => false,
                         'message' => 'Payment deadline has passed. Please register again.',
                         'debug' => ['expired_at' => $expiredAt],
-                    ], 409));
+                    ], 409);
                 }
             }
         }
 
-        /* ===========================
-           💰 PAID SEAT LIMIT CHECK
-           =========================== */
+        // 💰 paid seat limit
         $paidLimit = (int) ($quota->paid_limit ?? 0);
 
         if ($paidLimit > 0) {
@@ -186,14 +153,14 @@ class RegistrationController extends Controller
                 ->count();
 
             if ($paidCount >= $paidLimit) {
-                abort(response()->json([
+                $this->jsonAbort([
                     'success' => false,
                     'message' => 'This major is full. Paid seats are no longer available.',
                     'debug' => [
                         'paid_limit' => $paidLimit,
                         'paid_count' => $paidCount,
                     ],
-                ], 409));
+                ], 409);
             }
         }
     }
@@ -204,14 +171,8 @@ class RegistrationController extends Controller
         return $s !== '' ? $s : $fallback;
     }
 
-    private function isPaid($statusUpper)
-    {
-        return in_array($statusUpper, ['PAID', 'COMPLETED', 'SUCCESS', 'APPROVED', 'DONE'], true);
-    }
-
     /**
      * ✅ Ensure period exists WITHOUT overwriting paid status
-     * - Insert-only; if exists, update only NON-payment fields
      */
     private function ensureAcademicPeriod(int $studentId, string $academicYear, int $semester, float $tuitionAmount): void
     {
@@ -326,7 +287,6 @@ class RegistrationController extends Controller
         $major = Major::findOrFail($request->major_id);
         $tuition = (float) ($major->registration_fee ?? 0);
 
-        // Find existing student by email/phone (safe)
         $existingStudent = DB::table('students')
             ->leftJoin('users', 'students.user_id', '=', 'users.id')
             ->leftJoin('registrations', 'students.registration_id', '=', 'registrations.id')
@@ -347,11 +307,10 @@ class RegistrationController extends Controller
             ->orderByDesc('students.id')
             ->first();
 
-        // If already PAID for same year+semester => block
         if ($existingStudent) {
             $period = DB::table('student_academic_periods')
                 ->where('student_id', $existingStudent->student_id)
-                ->where('academic_year', $request->academic_year)
+                ->where('academic_year', $validated['academic_year'])
                 ->where('semester', $semester)
                 ->first();
 
@@ -431,7 +390,7 @@ class RegistrationController extends Controller
 
             $registrationId = DB::table('registrations')->insertGetId($regData);
 
-            // Existing student path (new year registration)
+            // Existing student path
             if ($existingStudent) {
                 if ($profilePicturePath && !empty($existingStudent->user_id)) {
                     User::where('id', $existingStudent->user_id)->update([
@@ -516,6 +475,15 @@ class RegistrationController extends Controller
                     'password' => $plainPassword,
                 ]
             ], 201);
+        } catch (HttpResponseException $e) {
+            DB::rollBack();
+
+            if (!empty($profilePicturePath) && File::exists(public_path($profilePicturePath))) {
+                File::delete(public_path($profilePicturePath));
+            }
+
+            // This will return your 409 JSON cleanly (NOT 500)
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -525,8 +493,10 @@ class RegistrationController extends Controller
 
             Log::error('Registration store error', [
                 'message' => $e->getMessage(),
+                'class' => get_class($e),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
+                'trace' => substr($e->getTraceAsString(), 0, 3000),
             ]);
 
             return response()->json([
