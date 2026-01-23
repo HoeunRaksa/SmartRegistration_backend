@@ -55,7 +55,8 @@ use App\Http\Controllers\Api\StudentClassGroupController;
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register/save', [RegistrationController::class, 'store']); // student self-register
 Route::post('/registrations/{id}/pay-later', [RegistrationController::class, 'payLater']);
-
+// routes/api.php
+Route::get('/registrations/can-register', [RegistrationController::class, 'canRegister']);
 Route::get('/majors/{id}/capacity', [MajorCapacityController::class, 'show']);
 Route::get('/major-quotas', [MajorQuotaController::class, 'index']);
 Route::post('/major-quotas', [MajorQuotaController::class, 'store']);

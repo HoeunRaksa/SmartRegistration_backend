@@ -125,6 +125,80 @@ class RegistrationController extends Controller
         }
     }
 
+
+public function canRegister(Request $request)
+{
+    $request->validate([
+        'major_id' => 'required|integer|exists:majors,id',
+        'academic_year' => 'required|string|max:20',
+    ]);
+
+    $majorId = (int) $request->major_id;
+    $academicYear = (string) $request->academic_year;
+
+    $quota = DB::table('major_quotas')
+        ->where('major_id', $majorId)
+        ->where('academic_year', $academicYear)
+        ->first();
+
+    if (!$quota) {
+        return response()->json([
+            'allowed' => false,
+            'reason' => 'NOT_CONFIGURED',
+            'message' => 'Registration is not configured yet for this major/year. Please try again later.',
+        ]);
+    }
+
+    $now = now();
+
+    if (!empty($quota->opens_at) && $now->lt($quota->opens_at)) {
+        return response()->json([
+            'allowed' => false,
+            'reason' => 'NOT_OPEN_YET',
+            'message' => 'Registration is not open yet for this major/year.',
+            'opens_at' => $quota->opens_at,
+        ]);
+    }
+
+    if (!empty($quota->closes_at) && $now->gt($quota->closes_at)) {
+        return response()->json([
+            'allowed' => false,
+            'reason' => 'CLOSED',
+            'message' => 'Registration is closed for this major/year.',
+            'closes_at' => $quota->closes_at,
+        ]);
+    }
+
+    if ($quota->limit !== null) {
+        $limit = (int) $quota->limit;
+
+        $used = (int) DB::table('registrations')
+            ->where('major_id', $majorId)
+            ->where('academic_year', $academicYear)
+            ->count();
+
+        if ($used >= $limit) {
+            return response()->json([
+                'allowed' => false,
+                'reason' => 'FULL',
+                'message' => 'This major is full for this academic year. Please choose another major.',
+                'limit' => $limit,
+                'used' => $used,
+            ]);
+        }
+    }
+
+    return response()->json([
+        'allowed' => true,
+        'reason' => null,
+        'message' => 'OK',
+    ]);
+}
+
+
+
+
+
     private function assertMajorCanPayOrFail(int $majorId, string $academicYear, int $registrationId): void
     {
         $quota = DB::table('major_quotas')
