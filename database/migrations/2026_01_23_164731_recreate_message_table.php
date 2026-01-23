@@ -39,8 +39,8 @@ return new class extends Migration
             $table->timestamps();
 
             // performance
-            $table->index(['sender_id', 'receiver_id']);
-            $table->index(['receiver_id', 'is_read']);
+            $table->index(['s_id', 'r_id']);
+            $table->index(['s_id', 'is_read']);
         });
     }
 

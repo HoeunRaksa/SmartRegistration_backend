@@ -16,11 +16,11 @@ return new class extends Migration
         Schema::create('messages', function (Blueprint $table) {
             $table->id();
 
-            $table->foreignId('sender_id')
+            $table->foreignId('s_id')
                 ->constrained('users')
                 ->onDelete('cascade');
 
-            $table->foreignId('receiver_id')
+            $table->foreignId('r_id')
                 ->constrained('users')
                 ->onDelete('cascade');
 
@@ -30,7 +30,7 @@ return new class extends Migration
 
             $table->timestamps();
 
-            $table->index(['sender_id', 'receiver_id']);
+            $table->index(['s_id', 'r_id']);
         });
         
         Schema::create('message_attachments', function (Blueprint $table) {
