@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use App\Models\CourseEnrollment;
 class StudentController extends Controller
 {
     /**
@@ -161,16 +162,37 @@ public function update(Request $request, $id)
     /**
      * DELETE /api/students/{id}
      */
-    public function destroy($id)
-    {
+public function destroy($id)
+{
+    DB::beginTransaction();
+
+    try {
         $student = Student::findOrFail($id);
-        $student->delete();
+
+        // ✅ Mark all active enrollments as DROPPED
+        CourseEnrollment::where('student_id', $student->id)
+            ->where('status', 'ENROLLED')
+            ->update([
+                'status' => 'DROPPED',
+                'dropped_at' => now(),
+            ]);
+
+        DB::commit();
 
         return response()->json([
             'success' => true,
-            'message' => 'Student deleted successfully'
+            'message' => 'Student enrollments dropped successfully'
         ]);
+    } catch (\Throwable $e) {
+        DB::rollBack();
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to drop enrollments',
+            'error' => $e->getMessage(),
+        ], 500);
     }
+}
 
     /**
      * POST /api/students/{id}/reset-password

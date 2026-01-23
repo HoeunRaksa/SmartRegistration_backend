@@ -525,54 +525,54 @@ class RegistrationController extends Controller
         }
     }
 
-    public function index(Request $request)
-    {
-        $semester = $this->normalizeSemester($request->input('semester', 1));
+public function index(Request $request)
+{
+    $semester = $this->normalizeSemester($request->input('semester', 1));
 
-        $registrations = DB::table('registrations as r')
-            ->join('departments as d', 'r.department_id', '=', 'd.id')
-            ->join('majors as m', 'r.major_id', '=', 'm.id')
+    $registrations = DB::table('registrations as r')
+        ->join('departments as d', 'r.department_id', '=', 'd.id')
+        ->join('majors as m', 'r.major_id', '=', 'm.id')
 
-            // link user by email (ok)
-            ->leftJoin('users as u', 'u.email', '=', 'r.personal_email')
+        // link user by email
+        ->leftJoin('users as u', 'u.email', '=', 'r.personal_email')
 
-            // ✅ NEW: find student primarily by user_id (stable across years)
-            ->leftJoin('students as s', function ($join) {
-                $join->on('s.user_id', '=', 'u.id');
-            })
+        // ✅ MUST exist
+        ->join('students as s', function ($join) {
+            $join->on('s.user_id', '=', 'u.id');
+        })
 
-            // ✅ join period using s.id (student_id)
-            ->leftJoin('student_academic_periods as sap', function ($join) use ($semester) {
-                $join->on('sap.student_id', '=', 's.id')
-                    ->on('sap.academic_year', '=', 'r.academic_year')
-                    ->where('sap.semester', '=', $semester);
-            })
+        // period (still left join because may not exist yet)
+        ->leftJoin('student_academic_periods as sap', function ($join) use ($semester) {
+            $join->on('sap.student_id', '=', 's.id')
+                ->on('sap.academic_year', '=', 'r.academic_year')
+                ->where('sap.semester', '=', $semester);
+        })
 
-            ->select(
-                'r.*',
-     
-                DB::raw('d.name as department_name'),
-                'm.major_name',
-                'm.registration_fee',
-                's.student_code',
-                DB::raw('s.id as student_id'),
-                DB::raw('COALESCE(sap.payment_status, "PENDING") as period_payment_status'),
-                'sap.paid_at as period_paid_at',
-                'sap.tuition_amount as period_tuition_amount',
-                DB::raw($semester . ' as period_semester')
-            )
-            ->orderBy('r.created_at', 'desc')
-            ->get();
+        ->select(
+            'r.*',
+            DB::raw('d.name as department_name'),
+            'm.major_name',
+            'm.registration_fee',
+            's.student_code',
+            DB::raw('s.id as student_id'),
+            DB::raw('COALESCE(sap.payment_status, "PENDING") as period_payment_status'),
+            'sap.paid_at as period_paid_at',
+            'sap.tuition_amount as period_tuition_amount',
+            DB::raw($semester . ' as period_semester')
+        )
+        ->orderBy('r.created_at', 'desc')
+        ->get();
 
-        $registrations = $registrations->map(function ($reg) {
-            if (!empty($reg->profile_picture_path)) {
-                $reg->profile_picture_url = url($reg->profile_picture_path);
-            }
-            return $reg;
-        });
+    $registrations = $registrations->map(function ($reg) {
+        if (!empty($reg->profile_picture_path)) {
+            $reg->profile_picture_url = url($reg->profile_picture_path);
+        }
+        return $reg;
+    });
 
-        return response()->json(['success' => true, 'data' => $registrations]);
-    }
+    return response()->json(['success' => true, 'data' => $registrations]);
+}
+
 
     public function payLater($id)
     {
