@@ -66,7 +66,7 @@ class ChatController extends Controller
         $message->load('attachments');
 
         // ✅ REALTIME PUSH
-        broadcast(new \App\Events\MessageSent($message));
+        broadcast(new \App\Events\MessageSent($message))->toOthers();
 
         return response()->json($message, 201);
     }
