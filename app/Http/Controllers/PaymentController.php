@@ -184,7 +184,7 @@ class PaymentController extends Controller
             'registration_id' => 'required|integer|min:1',
             'semester' => 'nullable|integer|in:1,2',
             'pay_plan' => 'nullable|array',
-            'pay_plan.type' => 'nullable|in:SEMESTER,YEAR',
+            'pay_plan.type' => 'nullable|string',
             'pay_plan.semester' => 'nullable|integer|in:1,2',
         ]);
 
