@@ -86,116 +86,119 @@ class RegistrationReportController extends Controller
      * - joins department, major, student
      * - joins latest/exact student_academic_periods
      */
-    private function baseReportQuery(Request $request)
-    {
-        $semester = (int)($request->input('semester', 0));
-        $academicYear = $request->input('academic_year', null);
+private function baseReportQuery(Request $request)
+{
+    $semester = (int)($request->input('semester', 0)); // 0 = all
+    $academicYear = $request->input('academic_year', null);
 
-        $q = DB::table('registrations as r')
-            ->leftJoin('departments as d', 'd.id', '=', 'r.department_id')
-            ->leftJoin('majors as m', 'm.id', '=', 'r.major_id');
+    $q = DB::table('registrations as r')
+        ->leftJoin('departments as d', 'd.id', '=', 'r.department_id')
+        ->leftJoin('majors as m', 'm.id', '=', 'r.major_id');
 
-        $joinInfo = $this->joinStudent($q);
-        $studentIdExpr = $joinInfo['student_id_expr']; // "s.id" OR "r.student_id"
+    // Detect student join
+    $joinInfo = $this->joinStudent($q);
+    $studentIdExpr = $joinInfo['student_id_expr']; // "s.id" OR "r.student_id"
 
-        // ===== Join periods =====
-        if ($semester === 1 || $semester === 2) {
-            $q->leftJoin('student_academic_periods as sap', function ($join) use ($semester, $academicYear, $studentIdExpr) {
-                $join->on('sap.student_id', '=', DB::raw($studentIdExpr))
-                    ->where('sap.semester', '=', $semester);
+    // Always bind periods to registration academic_year
+    // If request academic_year exists, we also filter registrations by it later.
+    $q->leftJoin('student_academic_periods as sap1', function ($join) use ($studentIdExpr) {
+        $join->on('sap1.student_id', '=', DB::raw($studentIdExpr))
+            ->on('sap1.academic_year', '=', 'r.academic_year')
+            ->where('sap1.semester', '=', 1);
+    });
 
-                if (!empty($academicYear)) {
-                    $join->where('sap.academic_year', '=', $academicYear);
-                }
-            });
-        } else {
-            $sub = DB::table('student_academic_periods as p')
-                ->selectRaw('p.student_id, MAX(p.id) as max_id')
-                ->groupBy('p.student_id');
+    $q->leftJoin('student_academic_periods as sap2', function ($join) use ($studentIdExpr) {
+        $join->on('sap2.student_id', '=', DB::raw($studentIdExpr))
+            ->on('sap2.academic_year', '=', 'r.academic_year')
+            ->where('sap2.semester', '=', 2);
+    });
 
-            if (!empty($academicYear)) {
-                $sub->where('p.academic_year', $academicYear);
-            }
+    // department / major name safety
+    $deptNameSql = $this->hasColumn('departments', 'department_name')
+        ? 'd.department_name'
+        : ($this->hasColumn('departments', 'name') ? 'd.name' : 'NULL');
 
-            $q->leftJoinSub($sub, 'latest_p', function ($join) use ($studentIdExpr) {
-                $join->on('latest_p.student_id', '=', DB::raw($studentIdExpr));
-            });
+    $majorNameSql = $this->hasColumn('majors', 'major_name')
+        ? 'm.major_name'
+        : ($this->hasColumn('majors', 'name') ? 'm.name' : 'NULL');
 
-            $q->leftJoin('student_academic_periods as sap', function ($join) {
-                $join->on('sap.id', '=', 'latest_p.max_id');
-            });
+    $q->select([
+        'r.*',
+        DB::raw("$deptNameSql as department_name"),
+        DB::raw("$majorNameSql as major_name"),
+        DB::raw('s.student_code as student_code'),
+
+        // Semester 1
+        DB::raw('COALESCE(sap1.payment_status, "PENDING") as sem1_payment_status'),
+        DB::raw('sap1.paid_at as sem1_paid_at'),
+        DB::raw('sap1.tuition_amount as sem1_tuition_amount'),
+
+        // Semester 2
+        DB::raw('COALESCE(sap2.payment_status, "PENDING") as sem2_payment_status'),
+        DB::raw('sap2.paid_at as sem2_paid_at'),
+        DB::raw('sap2.tuition_amount as sem2_tuition_amount'),
+
+        // Computed YEAR payment
+        DB::raw("
+            CASE
+                WHEN UPPER(COALESCE(sap1.payment_status,'PENDING')) = 'PAID'
+                 AND UPPER(COALESCE(sap2.payment_status,'PENDING')) = 'PAID'
+                THEN 'PAID'
+                ELSE 'PENDING'
+            END as year_payment_status
+        "),
+
+        DB::raw('r.academic_year as report_academic_year'),
+    ]);
+
+    // ===== Filters =====
+    if ($request->filled('department_id')) $q->where('r.department_id', $request->department_id);
+    if ($request->filled('major_id')) $q->where('r.major_id', $request->major_id);
+    if ($request->filled('shift')) $q->where('r.shift', $request->shift);
+    if ($request->filled('gender')) $q->where('r.gender', $request->gender);
+
+    if ($request->filled('date_from')) $q->whereDate('r.created_at', '>=', $request->date_from);
+    if ($request->filled('date_to')) $q->whereDate('r.created_at', '<=', $request->date_to);
+
+    if (!empty($academicYear)) {
+        // filter registrations by academic year
+        if ($this->hasColumn('registrations', 'academic_year')) {
+            $q->where('r.academic_year', $academicYear);
         }
-
-        // ✅ IMPORTANT FIX: department_name might be "name"
-        $deptNameSql = $this->hasColumn('departments', 'department_name')
-            ? 'd.department_name'
-            : ($this->hasColumn('departments', 'name') ? 'd.name' : 'NULL');
-
-        $majorNameSql = $this->hasColumn('majors', 'major_name')
-            ? 'm.major_name'
-            : ($this->hasColumn('majors', 'name') ? 'm.name' : 'NULL');
-
-        // ===== Select =====
-        $q->select([
-            'r.*',
-            DB::raw("$deptNameSql as department_name"),
-            DB::raw("$majorNameSql as major_name"),
-            DB::raw('s.student_code as student_code'),
-
-            DB::raw('sap.payment_status as period_payment_status'),
-            DB::raw('sap.paid_at as period_paid_at'),
-            DB::raw('sap.tuition_amount as period_tuition_amount'),
-            DB::raw('sap.semester as period_semester'),
-            DB::raw('sap.academic_year as period_academic_year'),
-        ]);
-
-        // ===== Filters =====
-        if ($request->filled('department_id')) $q->where('r.department_id', $request->department_id);
-        if ($request->filled('major_id')) $q->where('r.major_id', $request->major_id);
-        if ($request->filled('shift')) $q->where('r.shift', $request->shift);
-        if ($request->filled('gender')) $q->where('r.gender', $request->gender);
-
-        if ($request->filled('date_from')) $q->whereDate('r.created_at', '>=', $request->date_from);
-        if ($request->filled('date_to')) $q->whereDate('r.created_at', '<=', $request->date_to);
-
-        if ($request->filled('payment_status')) {
-            $target = strtoupper(trim($request->payment_status));
-            $q->whereRaw('UPPER(TRIM(COALESCE(sap.payment_status, r.payment_status, "PENDING"))) = ?', [$target]);
-        }
-
-        if ($request->filled('academic_year')) {
-            $ay = $request->academic_year;
-            $regHasAy = $this->hasColumn('registrations', 'academic_year');
-
-            $q->where(function ($w) use ($ay, $regHasAy) {
-                $w->where('sap.academic_year', $ay);
-
-                if ($regHasAy) {
-                    $w->orWhere(function ($w2) use ($ay) {
-                        $w2->whereNull('sap.academic_year')
-                            ->where('r.academic_year', $ay);
-                    });
-                }
-            });
-        }
-
-        if ($semester === 1 || $semester === 2) {
-            $regHasSem = $this->hasColumn('registrations', 'semester');
-
-            $q->where(function ($w) use ($semester, $regHasSem) {
-                $w->where('sap.semester', $semester);
-
-                if ($regHasSem) {
-                    $w->orWhere(function ($w2) use ($semester) {
-                        $w2->whereNull('sap.semester')
-                            ->where('r.semester', $semester);
-                    });
-                }
-            });
-        }
-
-        return $q;
     }
+
+    // If semester filter requested (1 or 2), you can still use report values
+    // but DO NOT change joins — just decide which column to display later.
+    if ($semester === 1 || $semester === 2) {
+        // no extra join needed; UI/transform can choose sem1 or sem2
+    }
+
+    if ($request->filled('payment_status')) {
+        $target = strtoupper(trim($request->payment_status));
+
+        // payment_status filter applies to:
+        // - if semester=1 -> sem1
+        // - if semester=2 -> sem2
+        // - if semester=0 -> year_payment_status
+        if ($semester === 1) {
+            $q->whereRaw('UPPER(COALESCE(sap1.payment_status,"PENDING")) = ?', [$target]);
+        } elseif ($semester === 2) {
+            $q->whereRaw('UPPER(COALESCE(sap2.payment_status,"PENDING")) = ?', [$target]);
+        } else {
+            $q->whereRaw("
+                CASE
+                    WHEN UPPER(COALESCE(sap1.payment_status,'PENDING')) = 'PAID'
+                     AND UPPER(COALESCE(sap2.payment_status,'PENDING')) = 'PAID'
+                    THEN 'PAID'
+                    ELSE 'PENDING'
+                END = ?
+            ", [$target]);
+        }
+    }
+
+    return $q;
+}
+
 
     /* ================== GENERATE (JSON) ================== */
 
