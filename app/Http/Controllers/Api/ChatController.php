@@ -7,6 +7,7 @@ use App\Models\Message;
 use App\Models\MessageAttachment;
 use Illuminate\Http\Request;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 class ChatController extends Controller
 {
@@ -66,57 +67,66 @@ class ChatController extends Controller
 
         // ✅ REALTIME PUSH
         broadcast(new \App\Events\MessageSent($message))->toOthers();
-
-        return response()->json($message, 201);
     }
 
     public function conversations(Request $request)
     {
         $me = (int) $request->user()->id;
 
-        // Get all messages involving me (latest first)
-        $all = Message::where('s_id', $me)
-            ->orWhere('r_id', $me)
-            ->orderByDesc('id')
+        // 1) Load all users except me (you can filter roles here if you want)
+        $allUsers = User::where('id', '!=', $me)
+            ->select('id', 'name')   // add role fields if you have them
+            ->orderBy('name')
             ->get();
 
-        // partner_id => last_message
-        $latestByPartner = [];
-        foreach ($all as $m) {
-            $partnerId = ($m->s_id === $me) ? (int)$m->r_id : (int)$m->s_id;
+        // 2) Get latest message per partner (from messages table)
+        // partner_id => (content, created_at)
+        $latest = DB::table('messages as m')
+            ->selectRaw("
+            CASE WHEN m.s_id = ? THEN m.r_id ELSE m.s_id END as partner_id,
+            MAX(m.id) as last_message_id
+        ", [$me])
+            ->where(function ($q) use ($me) {
+                $q->where('m.s_id', $me)->orWhere('m.r_id', $me);
+            })
+            ->groupBy('partner_id');
 
-            if (!isset($latestByPartner[$partnerId])) {
-                $latestByPartner[$partnerId] = $m; // first one is latest because sorted desc
-            }
-        }
+        $lastMessages = DB::table('messages as last')
+            ->joinSub($latest, 't', function ($join) {
+                $join->on('last.id', '=', 't.last_message_id');
+            })
+            ->select([
+                't.partner_id',
+                'last.content',
+                'last.created_at',
+            ])
+            ->get()
+            ->keyBy('partner_id');
 
-        $partnerIds = array_keys($latestByPartner);
-
-        // unread counts (partner -> me)
+        // 3) unread counts from partner -> me
         $unreadCounts = Message::where('r_id', $me)
             ->where('is_read', false)
             ->selectRaw('s_id as partner_id, COUNT(*) as cnt')
             ->groupBy('s_id')
             ->pluck('cnt', 'partner_id');
 
-        $users = User::whereIn('id', $partnerIds)->get()->keyBy('id');
+        // 4) Merge into one list for your UI
+        $data = $allUsers->map(function ($u) use ($lastMessages, $unreadCounts) {
+            $last = $lastMessages[$u->id] ?? null;
 
-        $data = [];
-        foreach ($partnerIds as $pid) {
-            $last = $latestByPartner[$pid];
-            $u = $users[$pid] ?? null;
-
-            $data[] = [
-                'id' => (int)$pid,                 // partner user id (your UI uses this)
-                'name' => $u?->name ?? 'User',
+            return [
+                'id' => (int) $u->id,
+                'name' => $u->name,
                 'role' => null,
                 'course' => null,
-                'last_message' => $last->content,
-                'last_message_time' => $last->created_at,
-                'unread_count' => (int)($unreadCounts[$pid] ?? 0),
+
+                'last_message' => $last?->content,
+                'last_message_time' => $last?->created_at,
+                'unread_count' => (int) ($unreadCounts[$u->id] ?? 0),
+
                 'avatar' => null,
             ];
-        }
+        })->values();
 
         return response()->json(['data' => $data]);
     }
