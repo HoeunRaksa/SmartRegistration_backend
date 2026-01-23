@@ -15,7 +15,7 @@ use App\Models\Major;
 
 class RegistrationController extends Controller
 {
-        private function normalizeSemester($semester): int
+    private function normalizeSemester($semester): int
     {
         $s = (int) ($semester ?? 1);
         return in_array($s, [1, 2], true) ? $s : 1;
@@ -57,7 +57,7 @@ class RegistrationController extends Controller
                 if (!empty($email)) {
                     $hasAny = true;
                     $q->where('users.email', $email)
-                      ->orWhere('registrations.personal_email', $email);
+                        ->orWhere('registrations.personal_email', $email);
                 }
 
                 if (!empty($phone)) {
@@ -551,7 +551,7 @@ class RegistrationController extends Controller
             ->select(
                 'r.*',
                 // ✅ your departments table uses department_name (not name)
-                DB::raw('COALESCE(d.department_name, d.name) as department_name'),
+                DB::raw('d.name as department_name'),
                 'm.major_name',
                 'm.registration_fee',
                 's.student_code',
