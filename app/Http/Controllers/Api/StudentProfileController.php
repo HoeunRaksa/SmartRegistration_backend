@@ -53,7 +53,7 @@ class StudentProfileController extends Controller
                 'parent_phone' => $student->parent_phone,
 
                 // profile picture accessor already appended
-                'profile_picture_url' => $student->profile_picture_url,
+                'profile_picture_url' => $user->profile_picture_path,
 
                 // Department relation
                 'department_id' => $student->department_id,
