@@ -12,11 +12,18 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, TwoFactorAuthenticatable;
 
+    public function getProfilePictureUrlAttribute()
+    {
+        return $this->profile_picture_path
+            ? url($this->profile_picture_path)
+            : null;
+    }
+
     protected $fillable = [
         'name',
         'email',
         'password',
-        'role', 
+        'role',
         'profile_picture_path',
     ];
 

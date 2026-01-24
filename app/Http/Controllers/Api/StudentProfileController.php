@@ -37,7 +37,7 @@ class StudentProfileController extends Controller
                 // Email from users table
                 'email' => $student->user->email ?? null,
 
-                // Phone + address from  students table
+                // Phone + address from students table
                 'phone' => $student->phone_number,
                 'phone_number' => $student->phone_number,
                 'address' => $student->address,
@@ -53,7 +53,7 @@ class StudentProfileController extends Controller
                 'parent_phone' => $student->parent_phone,
 
                 // profile picture accessor already appended
-                'profile_picture_url' => $user->profile_picture_path,
+                'profile_picture_url' => $student->profile_picture_url,
 
                 // Department relation
                 'department_id' => $student->department_id,

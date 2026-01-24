@@ -11,6 +11,12 @@ class Teacher extends Model
 
     protected $table = 'teachers';
     protected $primaryKey = 'id';
+    protected $appends = ['profile_picture_url'];
+    public function getProfilePictureUrlAttribute()
+    {
+        return $this->user?->profile_picture_url;
+    }
+
 
     protected $fillable = [
         'user_id',

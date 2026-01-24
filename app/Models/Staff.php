@@ -9,6 +9,12 @@ class Staff extends Model
 {
     use HasFactory;
 
+    public function getProfilePictureUrlAttribute()
+    {
+        return $this->user?->profile_picture_url;
+    }
+    protected $appends = ['profile_picture_url'];
+
     protected $table = 'staffs';
     protected $primaryKey = 'id';
 

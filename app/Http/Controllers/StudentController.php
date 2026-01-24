@@ -12,63 +12,54 @@ use Illuminate\Validation\Rules\Password;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use App\Models\CourseEnrollment;
+
 class StudentController extends Controller
 {
     /**
      * GET /api/students
      * Admin / Staff only
      */
-public function index()
-{
-    $students = Student::with(['department', 'user', 'registration'])->get();
+    public function index()
+    {
+        $students = Student::with(['department', 'user', 'registration'])->get();
 
-    $students->transform(function ($student) {
-        if ($student->user && $student->user->profile_picture_path) {
-            $student->profile_picture_url =
-                url('uploads/profiles/' . basename($student->user->profile_picture_path));
-        } else {
-            $student->profile_picture_url = null;
-        }
-        return $student;
-    });
+        $students->transform(function ($student) {
+            // ✅ correct + safe (profile_picture_path already "uploads/profiles/xxx.jpg")
+            if ($student->user && $student->user->profile_picture_path) {
+                $student->profile_picture_url = url($student->user->profile_picture_path);
+            } else {
+                $student->profile_picture_url = null;
+            }
+            return $student;
+        });
 
-    return response()->json([
-        'success' => true,
-        'data' => $students
-    ]);
-}
-
+        return response()->json([
+            'success' => true,
+            'data' => $students
+        ]);
+    }
 
     /**
      * GET /api/students/{id}
      */
-public function show($id)
-{
-    $student = Student::with(['department', 'user', 'registration'])->findOrFail($id);
+    public function show($id)
+    {
+        $student = Student::with(['department', 'user', 'registration'])->findOrFail($id);
 
-    if ($student->user && $student->user->profile_picture_path) {
-        $student->profile_picture_url =
-            url('uploads/profiles/' . basename($student->user->profile_picture_path));
-    } else {
-        $student->profile_picture_url = null;
+        // ✅ correct + safe
+        if ($student->user && $student->user->profile_picture_path) {
+            $student->profile_picture_url = url($student->user->profile_picture_path);
+        } else {
+            $student->profile_picture_url = null;
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $student
+        ]);
     }
 
-    return response()->json([
-        'success' => true,
-        'data' => $student
-    ]);
-}
-
-    /**
-     * POST /api/students
-     * Usually called AFTER registration approval
-     */
-
-
-    /**
-     * PUT /api/students/{id}
-     */
-public function update(Request $request, $id)
+    public function update(Request $request, $id)
     {
         $student = Student::with(['user', 'registration'])->findOrFail($id);
 
@@ -95,7 +86,6 @@ public function update(Request $request, $id)
                 'nullable',
                 'email',
                 'max:255',
-                // ✅ avoid duplicate email in users table
                 Rule::unique('users', 'email')->ignore(optional($student->user)->id),
             ],
             'current_address' => ['nullable', 'string', 'max:255'],
@@ -132,9 +122,8 @@ public function update(Request $request, $id)
                     'current_address'
                 ]));
 
-                // keep registration phone/address same as student
-                if (array_key_exists('phone_number', $data)) $regUpdate['phone_number'] = $data['phone_number'];
-                if (array_key_exists('address', $data))      $regUpdate['address']      = $data['address'];
+                if (array_key_exists('phone_number', $data))  $regUpdate['phone_number']  = $data['phone_number'];
+                if (array_key_exists('address', $data))       $regUpdate['address']       = $data['address'];
                 if (array_key_exists('department_id', $data)) $regUpdate['department_id'] = $data['department_id'];
                 if (array_key_exists('date_of_birth', $data)) $regUpdate['date_of_birth'] = $data['date_of_birth'];
                 if (array_key_exists('gender', $data))        $regUpdate['gender']        = $data['gender'];
@@ -142,7 +131,7 @@ public function update(Request $request, $id)
                 if (array_key_exists('full_name_kh', $data))  $regUpdate['full_name_kh']  = $data['full_name_kh'];
 
                 if (!empty($regUpdate)) {
-                    $student->registration->update($regUpdate); // ✅ auto updated_at
+                    $student->registration->update($regUpdate);
                 }
             }
 
@@ -165,10 +154,18 @@ public function update(Request $request, $id)
 
             DB::commit();
 
+            // ✅ ensure response includes profile_picture_url too
+            $fresh = $student->fresh(['department', 'user', 'registration']);
+            if ($fresh->user && $fresh->user->profile_picture_path) {
+                $fresh->profile_picture_url = url($fresh->user->profile_picture_path);
+            } else {
+                $fresh->profile_picture_url = null;
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Student updated successfully',
-                'data' => $student->fresh(['department', 'user', 'registration']),
+                'data' => $fresh,
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -182,37 +179,36 @@ public function update(Request $request, $id)
     /**
      * DELETE /api/students/{id}
      */
-public function destroy($id)
-{
-    DB::beginTransaction();
+    public function destroy($id)
+    {
+        DB::beginTransaction();
 
-    try {
-        $student = Student::findOrFail($id);
+        try {
+            $student = Student::findOrFail($id);
 
-        // ✅ Mark all active enrollments as DROPPED
-        CourseEnrollment::where('student_id', $student->id)
-            ->where('status', 'ENROLLED')
-            ->update([
-                'status' => 'DROPPED',
-                'dropped_at' => now(),
+            CourseEnrollment::where('student_id', $student->id)
+                ->where('status', 'ENROLLED')
+                ->update([
+                    'status' => 'DROPPED',
+                    'dropped_at' => now(),
+                ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Student enrollments dropped successfully'
             ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
 
-        DB::commit();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Student enrollments dropped successfully'
-        ]);
-    } catch (\Throwable $e) {
-        DB::rollBack();
-
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to drop enrollments',
-            'error' => $e->getMessage(),
-        ], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to drop enrollments',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
-}
 
     /**
      * POST /api/students/{id}/reset-password
@@ -240,7 +236,6 @@ public function destroy($id)
             $user->password = Hash::make($validated['new_password']);
             $user->save();
 
-            // Optionally revoke all existing tokens to force re-login
             $user->tokens()->delete();
 
             DB::commit();
@@ -251,7 +246,7 @@ public function destroy($id)
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reset password',

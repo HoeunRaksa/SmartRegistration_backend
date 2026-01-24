@@ -12,41 +12,12 @@ class Student extends Model
     protected $table = 'students';
     protected $appends = ['profile_picture_url'];
 
+// App\Models\Student.php
 public function getProfilePictureUrlAttribute()
 {
-    $path = null;
-
-    // 1) student image
-    if (!empty($this->profile_picture_path)) {
-        $path = $this->profile_picture_path;
-    }
-    // 2) fallback to user image (works even if relation not loaded)
-    elseif (!empty($this->user_id)) {
-        $userPath = $this->relationLoaded('user')
-            ? ($this->user?->profile_picture_path)
-            : optional(\App\Models\User::find($this->user_id))->profile_picture_path;
-
-        if (!empty($userPath)) $path = $userPath;
-    }
-
-    if (empty($path)) return null;
-
-    // If already full URL
-    if (preg_match('/^https?:\/\//i', $path)) {
-        return $path;
-    }
-
-    // Normalize: remove leading slash
-    $path = ltrim($path, '/');
-
-    // If it already starts with uploads/profiles/
-    if (str_starts_with($path, 'uploads/profiles/')) {
-        return asset($path);
-    }
-
-    // If stored as filename only
-    return asset('uploads/profiles/' . basename($path));
+    return $this->user?->profile_picture_url;
 }
+
 
 
 
