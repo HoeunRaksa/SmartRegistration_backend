@@ -26,120 +26,178 @@ class AdminEnrollmentController extends Controller
  * - q (search: student code/name, course name)
  */
 public function index(Request $request)
-{
-    try {
-        $departmentId = $request->query('department_id');
-        $status       = $request->query('status');
-        $academicYear = $request->query('academic_year');
-        $semester     = $request->query('semester');
-        $q            = trim((string)$request->query('q', ''));
+    {
+        try {
+            $departmentId = $request->query('department_id');
+            $majorId      = $request->query('major_id');
+            $courseId     = $request->query('course_id');
+            $status       = $request->query('status');
+            $academicYear = $request->query('academic_year');
+            $semester     = $request->query('semester');
+            $q            = trim((string) $request->query('q', ''));
 
-        $enrollmentsQ = \App\Models\CourseEnrollment::query()
-            ->with([
-                // ✅ student + user email
-                'student' => function ($sq) {
-                    $sq->select(
-                        'id',
-                        'user_id',
-                        'student_code',
-                        'full_name_en',
-                        'full_name_kh',
-                        'department_id',
-                        'phone_number',
-                        'address',
-                        'profile_picture_path'
-                    )->with([
-                        'user:id,email,name,profile_picture_path'
-                    ]);
-                },
+            $enrollmentsQ = CourseEnrollment::query()
+                ->with([
+                    // ✅ Student fields (students table)
+                    'student:id,student_code,full_name_en,full_name_kh,department_id,major_id,phone_number,address,profile_picture_path',
 
-                'course' => function ($cq) {
-                    $cq->with([
-                        'classGroup:id,class_name',
-                        'majorSubject.subject:id,subject_name',
-                        'majorSubject.major:id,major_name,department_id',
-                        'teacher:id,name,full_name',
-                    ]);
-                },
+                    // ✅ Course + nested (for display_name)
+                    'course' => function ($cq) {
+                        $cq->with([
+                            'classGroup:id,class_name',
+                            'majorSubject.subject:id,subject_name',
+                            'majorSubject.major:id,major_name,department_id',
+
+                            // ✅ IMPORTANT FIX:
+                            // Your teachers table DOES NOT have "name" column.
+                            // Keep only columns that exist.
+                            'teacher:id,full_name',
+                        ]);
+                    },
+                ]);
+
+            /* ===================== FILTERS ===================== */
+
+            // filter by student department
+            if (!empty($departmentId)) {
+                $enrollmentsQ->whereHas('student', function ($sq) use ($departmentId) {
+                    $sq->where('department_id', $departmentId);
+                });
+            }
+
+            // filter by student major
+            if (!empty($majorId)) {
+                $enrollmentsQ->whereHas('student', function ($sq) use ($majorId) {
+                    $sq->where('major_id', $majorId);
+                });
+            }
+
+            // filter by course
+            if (!empty($courseId)) {
+                $enrollmentsQ->where('course_id', $courseId);
+            }
+
+            // filter by status
+            if (!empty($status)) {
+                $enrollmentsQ->where('status', $status);
+            }
+
+            // filter by course academic_year
+            if (!empty($academicYear)) {
+                $enrollmentsQ->whereHas('course', function ($cq) use ($academicYear) {
+                    $cq->where('academic_year', $academicYear);
+                });
+            }
+
+            // filter by course semester
+            if (!empty($semester)) {
+                $enrollmentsQ->whereHas('course', function ($cq) use ($semester) {
+                    $cq->where('semester', (int) $semester);
+                });
+            }
+
+            /* ===================== SEARCH ===================== */
+
+            if ($q !== '') {
+                $enrollmentsQ->where(function ($root) use ($q) {
+                    $root->whereHas('student', function ($sq) use ($q) {
+                        $sq->where('student_code', 'like', "%{$q}%")
+                            ->orWhere('full_name_en', 'like', "%{$q}%")
+                            ->orWhere('full_name_kh', 'like', "%{$q}%")
+                            ->orWhere('phone_number', 'like', "%{$q}%")
+                            ->orWhere('address', 'like', "%{$q}%");
+                    })
+                    ->orWhereHas('course.majorSubject.subject', function ($subQ) use ($q) {
+                        $subQ->where('subject_name', 'like', "%{$q}%");
+                    })
+                    ->orWhereHas('course.classGroup', function ($cgQ) use ($q) {
+                        $cgQ->where('class_name', 'like', "%{$q}%");
+                    })
+                    ->orWhereHas('course.majorSubject.major', function ($mQ) use ($q) {
+                        $mQ->where('major_name', 'like', "%{$q}%");
+                    })
+                    ->orWhereHas('course.teacher', function ($tQ) use ($q) {
+                        // ✅ teacher has no "name" column -> use full_name
+                        $tQ->where('full_name', 'like', "%{$q}%");
+                    });
+                });
+            }
+
+            /* ===================== RESULT ===================== */
+
+            $enrollments = $enrollmentsQ
+                ->orderByDesc('id')
+                ->get()
+                ->map(function ($e) {
+                    $student = $e->student;
+                    $course  = $e->course;
+
+                    $studentName = $student?->full_name_en ?: ($student?->full_name_kh ?: null);
+
+                    // ✅ IMPORTANT:
+                    // Student model appends profile_picture_url,
+                    // but since we are mapping manually, build URL here.
+                    // If you store full path already, remove basename().
+                    $profileUrl = $student?->profile_picture_path
+                        ? asset('uploads/profiles/' . basename($student->profile_picture_path))
+                        : null;
+
+                    // ✅ If you want to also use user's profile image (fallback)
+                    // (only works if student has user loaded; we didn't load it here)
+                    // So keep simple.
+
+                    return [
+                        'id' => $e->id,
+
+                        'student_id'   => $e->student_id,
+                        'student_code' => $student?->student_code,
+                        'student_name' => $studentName,
+
+                        'department_id' => $student?->department_id,
+                        'major_id'      => $student?->major_id,
+
+                        // ✅ These are from students table, not users table
+                        // If your email is in users, see note below
+                        'email'   => $student?->email ?? null, // may be null if students table has no email column
+                        'phone'   => $student?->phone_number ?? null,
+                        'address' => $student?->address ?? null,
+
+                        'profile_picture_url' => $profileUrl,
+
+                        'course_id'     => $e->course_id,
+                        'course_name'   => $course?->display_name, // ✅ computed in Course model
+                        'academic_year' => $course?->academic_year,
+                        'semester'      => $course?->semester,
+
+                        // extra helpful info (optional)
+                        'teacher_name' => $course?->teacher?->full_name ?? null,
+                        'class_name'   => $course?->classGroup?->class_name ?? null,
+                        'subject_name' => $course?->majorSubject?->subject?->subject_name ?? null,
+                        'major_name'   => $course?->majorSubject?->major?->major_name ?? null,
+
+                        'status'      => $e->status,
+                        'progress'    => $e->progress,
+                        'enrolled_at' => $e->enrolled_at,
+                        'dropped_at'  => $e->dropped_at,
+
+                        'created_at' => $e->created_at,
+                        'updated_at' => $e->updated_at,
+                    ];
+                });
+
+            return response()->json(['data' => $enrollments], 200);
+        } catch (\Throwable $e) {
+            Log::error('AdminEnrollmentController@index error', [
+                'message' => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
             ]);
 
-        if (!empty($departmentId)) {
-            $enrollmentsQ->whereHas('student', fn($sq) => $sq->where('department_id', $departmentId));
+            return response()->json([
+                'message' => 'Failed to load enrollments',
+                'error'   => $e->getMessage(), // optional for debugging
+            ], 500);
         }
-
-        if (!empty($status)) {
-            $enrollmentsQ->where('status', $status);
-        }
-
-        if (!empty($academicYear)) {
-            $enrollmentsQ->whereHas('course', fn($cq) => $cq->where('academic_year', $academicYear));
-        }
-
-        if (!empty($semester)) {
-            $enrollmentsQ->whereHas('course', fn($cq) => $cq->where('semester', (int)$semester));
-        }
-
-        if ($q !== '') {
-            $enrollmentsQ->where(function ($root) use ($q) {
-                $root->whereHas('student', function ($sq) use ($q) {
-                    $sq->where('student_code', 'like', "%{$q}%")
-                        ->orWhere('full_name_en', 'like', "%{$q}%")
-                        ->orWhere('full_name_kh', 'like', "%{$q}%")
-                        // ✅ search user email too
-                        ->orWhereHas('user', fn($uq) => $uq->where('email', 'like', "%{$q}%"));
-                })
-                ->orWhereHas('course.majorSubject.subject', fn($subQ) => $subQ->where('subject_name', 'like', "%{$q}%"))
-                ->orWhereHas('course.classGroup', fn($cgQ) => $cgQ->where('class_name', 'like', "%{$q}%"));
-            });
-        }
-
-        $enrollments = $enrollmentsQ->orderByDesc('id')->get()->map(function ($e) {
-            $student = $e->student;
-            $user    = $student?->user;
-
-            $studentName = $student?->full_name_en ?: ($student?->full_name_kh ?: null);
-
-            // ✅ profile image: student.profile_picture_path OR user.profile_picture_path
-            $path = $student?->profile_picture_path ?: $user?->profile_picture_path;
-            $profileUrl = $path ? asset('uploads/profiles/' . basename($path)) : null;
-
-            return [
-                'id' => $e->id,
-
-                'student_id'    => $e->student_id,
-                'student_code'  => $student?->student_code,
-                'student_name'  => $studentName,
-                'department_id' => $student?->department_id,
-
-                // ✅ THIS is what fixes "Email N/A"
-                'email'   => $user?->email ?? null,
-                'phone'   => $student?->phone_number ?? null,
-                'address' => $student?->address ?? null,
-
-                'profile_picture_url' => $profileUrl,
-
-                'course_id'     => $e->course_id,
-                'course_name'   => $e->course?->display_name,
-                'academic_year' => $e->course?->academic_year,
-                'semester'      => $e->course?->semester,
-
-                'status'      => $e->status,
-                'progress'    => $e->progress,
-                'enrolled_at' => $e->enrolled_at,
-                'dropped_at'  => $e->dropped_at,
-
-                'created_at' => $e->created_at,
-                'updated_at' => $e->updated_at,
-            ];
-        });
-
-        return response()->json(['data' => $enrollments], 200);
-    } catch (\Throwable $e) {
-        Log::error('AdminEnrollmentController@index error', ['message' => $e->getMessage()]);
-        return response()->json(['message' => 'Failed to load enrollments'], 500);
     }
-}
-
 
 
 
