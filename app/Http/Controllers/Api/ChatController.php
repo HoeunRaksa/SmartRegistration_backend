@@ -7,6 +7,7 @@ use App\Models\Message;
 use App\Models\MessageAttachment;
 use Illuminate\Http\Request;
 use App\Models\User;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
 class ChatController extends Controller
@@ -28,47 +29,55 @@ class ChatController extends Controller
 
     public function store(Request $request, $userId)
     {
-        $me = $request->user()->id;
+        try {
+            $me = $request->user()->id;
 
-        $request->validate([
-            'content' => ['nullable', 'string'],
-            'files.*' => ['nullable', 'file', 'max:20480'],
-        ]);
+            $request->validate([
+                'content' => ['nullable', 'string'],
+                'files.*' => ['nullable', 'file', 'max:20480'],
+            ]);
 
-        if (!$request->filled('content') && !$request->hasFile('files')) {
-            return response()->json(['message' => 'content or files required'], 422);
-        }
-
-        $message = Message::create([
-            's_id' => $me,
-            'r_id' => (int)$userId,
-            'content' => $request->input('content'),
-            'is_read' => false,
-        ]);
-
-        if ($request->hasFile('files')) {
-            foreach ($request->file('files') as $file) {
-                $mime = $file->getMimeType();
-                $type = str_starts_with($mime, 'image/') ? 'image' : (str_starts_with($mime, 'audio/') ? 'audio' : 'file');
-
-                $path = $file->store("chat/{$message->id}", 'public');
-
-                MessageAttachment::create([
-                    'message_id' => $message->id,
-                    'type' => $type,
-                    'file_path' => $path,
-                    'original_name' => $file->getClientOriginalName(),
-                    'file_size' => $file->getSize(),
-                ]);
+            if (!$request->filled('content') && !$request->hasFile('files')) {
+                return response()->json(['message' => 'content or files required'], 422);
             }
+
+            $message = Message::create([
+                's_id' => $me,
+                'r_id' => (int)$userId,
+                'content' => $request->input('content'),
+                'is_read' => false,
+            ]);
+
+            if ($request->hasFile('files')) {
+                foreach ($request->file('files') as $file) {
+                    $mime = $file->getMimeType();
+                    $type = str_starts_with($mime, 'image/') ? 'image' : (str_starts_with($mime, 'audio/') ? 'audio' : 'file');
+
+                    $path = $file->store("chat/{$message->id}", 'public');
+
+                    MessageAttachment::create([
+                        'message_id' => $message->id,
+                        'type' => $type,
+                        'file_path' => $path,
+                        'original_name' => $file->getClientOriginalName(),
+                        'file_size' => $file->getSize(),
+                    ]);
+                }
+            }
+
+            $message->load('attachments');
+
+            // ✅ REALTIME PUSH
+            broadcast(new \App\Events\MessageSent($message));
+
+            return response()->json($message, 201);
+        } catch (\Exception $e) {
+            Log::error('Message send error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to send message',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $message->load('attachments');
-
-        // ✅ REALTIME PUSH
-        broadcast(new \App\Events\MessageSent($message));
-
-        return response()->json($message, 201);
     }
 
     public function conversations(Request $request)
