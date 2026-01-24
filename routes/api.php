@@ -59,7 +59,8 @@ Broadcast::routes(['middleware' => ['auth:sanctum']]);
 |--------------------------------------------------------------------------
 */
 
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
+
 Route::post('/register/save', [RegistrationController::class, 'store']); // student self-register
 Route::post('/registrations/{id}/pay-later', [RegistrationController::class, 'payLater']);
 // routes/api.php
