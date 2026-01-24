@@ -135,7 +135,7 @@ public function index(Request $request)
 
         return response()->json(['data' => $enrollments], 200);
     } catch (\Throwable $e) {
-        \Log::error('AdminEnrollmentController@index error', ['message' => $e->getMessage()]);
+        Log::error('AdminEnrollmentController@index error', ['message' => $e->getMessage()]);
         return response()->json(['message' => 'Failed to load enrollments'], 500);
     }
 }
