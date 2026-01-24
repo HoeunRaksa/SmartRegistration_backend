@@ -8,16 +8,17 @@ use App\Models\MajorSubject;
 class CourseController extends Controller
 {
     // GET: /api/courses
-    public function index()
-    {
-        $data = Course::with([
-            'majorSubject.major',
-            'majorSubject.subject',
-            'teacher',
-        ])->latest('id')->get();
+public function index()
+{
+    $data = Course::with([
+        'majorSubject.major',
+        'majorSubject.subject',
+        'teacher',
+        'classGroup', // ✅ add this
+    ])->latest('id')->get();
 
-        return response()->json(['data' => $data], 200);
-    }
+    return response()->json(['data' => $data], 200);
+}
 
 // POST: /api/courses
 public function store(Request $request)
@@ -95,32 +96,60 @@ public function store(Request $request)
 
 
     // GET: /api/courses/{id}
-    public function show($id)
-    {
-        $course = Course::with([
-            'majorSubject.major',
-            'majorSubject.subject',
-            'teacher',
-        ])->findOrFail($id);
+public function show($id)
+{
+    $course = Course::with([
+        'majorSubject.major',
+        'majorSubject.subject',
+        'teacher',
+        'classGroup', // ✅ add this
+    ])->findOrFail($id);
 
-        return response()->json(['data' => $course], 200);
-    }
+    return response()->json(['data' => $course], 200);
+}
 
     // PUT: /api/courses/{id}
+// PUT: /api/courses/{id}
 public function update(Request $request, $id)
 {
     $course = Course::findOrFail($id);
 
     $validated = $request->validate([
-        'teacher_id'    => 'required|exists:teachers,id',
-        'semester'      => 'required|integer|min:1|max:3',
-        'academic_year' => 'required|string|regex:/^\d{4}-\d{4}$/',
+        'teacher_id'     => 'required|exists:teachers,id',
+        'semester'       => 'required|integer|min:1|max:3',
+        'academic_year'  => 'required|string|regex:/^\d{4}-\d{4}$/',
+        'class_group_id' => 'nullable|exists:class_groups,id',
     ]);
+
+    // ✅ Prevent duplicate course (except itself)
+    $exists = Course::where('major_subject_id', $course->major_subject_id)
+        ->where('semester', $validated['semester'])
+        ->where('academic_year', $validated['academic_year'])
+        ->when(array_key_exists('class_group_id', $validated), function ($q) use ($validated) {
+            $q->where('class_group_id', $validated['class_group_id']);
+        })
+        ->where('id', '!=', $course->id)
+        ->exists();
+
+    if ($exists) {
+        return response()->json([
+            'message' => 'Course already exists for this subject, semester, academic year, and class group.'
+        ], 409);
+    }
 
     $course->update($validated);
 
-    return response()->json($course);
+    // ✅ Return with relations so UI refreshes correctly
+    return response()->json([
+        'data' => $course->load([
+            'majorSubject.major',
+            'majorSubject.subject',
+            'teacher',
+            'classGroup',
+        ])
+    ], 200);
 }
+
 
 
     // DELETE: /api/courses/{id}

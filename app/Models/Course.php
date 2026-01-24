@@ -10,7 +10,6 @@ class Course extends Model
     use HasFactory;
 
     protected $table = 'courses';
-    protected $primaryKey = 'id';
 
     protected $fillable = [
         'major_subject_id',
@@ -20,9 +19,11 @@ class Course extends Model
         'class_group_id',
     ];
 
+    // ✅ auto include in JSON response
+    protected $appends = ['display_name'];
+
     public function majorSubject()
     {
-        // ✅ explicitly set FK for clarity
         return $this->belongsTo(MajorSubject::class, 'major_subject_id');
     }
 
@@ -33,6 +34,25 @@ class Course extends Model
 
     public function classGroup()
     {
-        return $this->belongsTo(\App\Models\ClassGroup::class, 'class_group_id');
+        return $this->belongsTo(ClassGroup::class, 'class_group_id');
+    }
+
+    // ✅ Course "name" computed from relations
+    public function getDisplayNameAttribute(): string
+    {
+        $subjectName = $this->majorSubject?->subject?->subject_name ?? 'N/A Subject';
+        $className   = $this->classGroup?->class_name ?? null;
+
+        $year = $this->academic_year ?? null;
+        $sem  = $this->semester ? 'Sem ' . $this->semester : null;
+
+        // Build like: "Database Systems — G1 — 2025-2026 — Sem 1"
+        $parts = [$subjectName];
+
+        if ($className) $parts[] = $className;
+        if ($year) $parts[] = $year;
+        if ($sem) $parts[] = $sem;
+
+        return implode(' — ', $parts);
     }
 }
