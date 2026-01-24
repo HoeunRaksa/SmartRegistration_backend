@@ -83,143 +83,161 @@ class RegistrationReportController extends Controller
      *  - 1 => Semester 1 only
      *  - 2 => Semester 2 only
      */
-    private function baseReportQuery(Request $request)
-    {
-        $semester = (int)($request->input('semester', 0)); // 0 = all
-        if (!in_array($semester, [0, 1, 2], true)) $semester = 0;
+private function baseReportQuery(Request $request)
+{
+    $semester = (int)($request->input('semester', 0)); // 0 = full year
+    if (!in_array($semester, [0, 1, 2], true)) $semester = 0;
 
-        $academicYear = $request->input('academic_year', null);
+    $academicYear = $request->input('academic_year', null);
 
-        $q = DB::table('registrations as r')
-            ->leftJoin('departments as d', 'd.id', '=', 'r.department_id')
-            ->leftJoin('majors as m', 'm.id', '=', 'r.major_id');
+    $q = DB::table('registrations as r')
+        ->leftJoin('departments as d', 'd.id', '=', 'r.department_id')
+        ->leftJoin('majors as m', 'm.id', '=', 'r.major_id');
 
-        // Detect student join
-        $joinInfo = $this->joinStudent($q);
-        $studentIdExpr = $joinInfo['student_id_expr']; // "s.id" OR "r.student_id"
+    // Detect student join
+    $joinInfo = $this->joinStudent($q);
+    $studentIdExpr = $joinInfo['student_id_expr']; // "s.id" OR "r.student_id"
 
-        // Join academic periods for sem 1 and sem 2 (bound to r.academic_year)
-        $q->leftJoin('student_academic_periods as sap1', function ($join) use ($studentIdExpr) {
-            $join->on('sap1.student_id', '=', DB::raw($studentIdExpr))
-                ->on('sap1.academic_year', '=', 'r.academic_year')
-                ->where('sap1.semester', '=', 1);
-        });
+    // Join academic periods for sem 1 and sem 2 (bound to r.academic_year)
+    $q->leftJoin('student_academic_periods as sap1', function ($join) use ($studentIdExpr) {
+        $join->on('sap1.student_id', '=', DB::raw($studentIdExpr))
+            ->on('sap1.academic_year', '=', 'r.academic_year')
+            ->where('sap1.semester', '=', 1);
+    });
 
-        $q->leftJoin('student_academic_periods as sap2', function ($join) use ($studentIdExpr) {
-            $join->on('sap2.student_id', '=', DB::raw($studentIdExpr))
-                ->on('sap2.academic_year', '=', 'r.academic_year')
-                ->where('sap2.semester', '=', 2);
-        });
+    $q->leftJoin('student_academic_periods as sap2', function ($join) use ($studentIdExpr) {
+        $join->on('sap2.student_id', '=', DB::raw($studentIdExpr))
+            ->on('sap2.academic_year', '=', 'r.academic_year')
+            ->where('sap2.semester', '=', 2);
+    });
 
-        // Department / Major name safety
-        $deptNameSql = $this->hasColumn('departments', 'department_name')
-            ? 'd.department_name'
-            : ($this->hasColumn('departments', 'name') ? 'd.name' : 'NULL');
+    // Department / Major name safety
+    $deptNameSql = $this->hasColumn('departments', 'department_name')
+        ? 'd.department_name'
+        : ($this->hasColumn('departments', 'name') ? 'd.name' : 'NULL');
 
-        $majorNameSql = $this->hasColumn('majors', 'major_name')
-            ? 'm.major_name'
-            : ($this->hasColumn('majors', 'name') ? 'm.name' : 'NULL');
+    $majorNameSql = $this->hasColumn('majors', 'major_name')
+        ? 'm.major_name'
+        : ($this->hasColumn('majors', 'name') ? 'm.name' : 'NULL');
 
-        // Year payment status: PAID / PARTIAL / PENDING
-        $yearStatusSql = "
-            CASE
-                WHEN UPPER(COALESCE(sap1.payment_status,'PENDING')) = 'PAID'
-                 AND UPPER(COALESCE(sap2.payment_status,'PENDING')) = 'PAID'
-                THEN 'PAID'
-                WHEN UPPER(COALESCE(sap1.payment_status,'PENDING')) = 'PAID'
-                  OR UPPER(COALESCE(sap2.payment_status,'PENDING')) = 'PAID'
-                THEN 'PARTIAL'
-                ELSE 'PENDING'
-            END
-        ";
+    // ✅ same "paid set" as your React isPaidStatus()
+    $paidSetSql = "('PAID','COMPLETED','SUCCESS','APPROVED','DONE')";
 
-        // Period fields depend on requested semester
-        $periodStatusSql = $semester === 1
-            ? "UPPER(COALESCE(sap1.payment_status,'PENDING'))"
-            : ($semester === 2
-                ? "UPPER(COALESCE(sap2.payment_status,'PENDING'))"
-                : $yearStatusSql);
+    // ✅ Year payment status: PAID / PARTIAL / PENDING (FULL YEAR logic)
+    // - PAID: both semesters are paid-like
+    // - PARTIAL: one semester paid-like (the other not paid-like)
+    // - PENDING: none paid-like
+    $yearStatusSql = "
+        CASE
+            WHEN UPPER(COALESCE(sap1.payment_status,'PENDING')) IN $paidSetSql
+             AND UPPER(COALESCE(sap2.payment_status,'PENDING')) IN $paidSetSql
+            THEN 'PAID'
 
-        $periodPaidAtSql = $semester === 1
-            ? "sap1.paid_at"
-            : ($semester === 2
-                ? "sap2.paid_at"
-                : "
-                    CASE
-                        WHEN sap1.paid_at IS NULL AND sap2.paid_at IS NULL THEN NULL
-                        WHEN sap1.paid_at IS NULL THEN sap2.paid_at
-                        WHEN sap2.paid_at IS NULL THEN sap1.paid_at
-                        WHEN sap1.paid_at >= sap2.paid_at THEN sap1.paid_at
-                        ELSE sap2.paid_at
-                    END
-                ");
+            WHEN UPPER(COALESCE(sap1.payment_status,'PENDING')) IN $paidSetSql
+              OR UPPER(COALESCE(sap2.payment_status,'PENDING')) IN $paidSetSql
+            THEN 'PARTIAL'
 
-        $periodAmountSql = $semester === 1
-            ? "COALESCE(sap1.tuition_amount, 0)"
-            : ($semester === 2
-                ? "COALESCE(sap2.tuition_amount, 0)"
-                : "(COALESCE(sap1.tuition_amount, 0) + COALESCE(sap2.tuition_amount, 0))");
+            ELSE 'PENDING'
+        END
+    ";
 
-        $periodSemesterSql = (int)$semester; // 0/1/2
+    // ✅ Period fields depend on requested semester
+    $periodStatusSql = $semester === 1
+        ? "UPPER(COALESCE(sap1.payment_status,'PENDING'))"
+        : ($semester === 2
+            ? "UPPER(COALESCE(sap2.payment_status,'PENDING'))"
+            : $yearStatusSql);
 
-        $q->select([
-            'r.*',
-            DB::raw("$deptNameSql as department_name"),
-            DB::raw("$majorNameSql as major_name"),
-            DB::raw('s.student_code as student_code'),
+    // paid_at:
+    // - sem1 => sap1.paid_at
+    // - sem2 => sap2.paid_at
+    // - year => latest non-null paid_at (best for "year record")
+    $periodPaidAtSql = $semester === 1
+        ? "sap1.paid_at"
+        : ($semester === 2
+            ? "sap2.paid_at"
+            : "
+                CASE
+                    WHEN sap1.paid_at IS NULL AND sap2.paid_at IS NULL THEN NULL
+                    WHEN sap1.paid_at IS NULL THEN sap2.paid_at
+                    WHEN sap2.paid_at IS NULL THEN sap1.paid_at
+                    WHEN sap1.paid_at >= sap2.paid_at THEN sap1.paid_at
+                    ELSE sap2.paid_at
+                END
+            ");
 
-            // Semester 1
-            DB::raw('COALESCE(sap1.payment_status, "PENDING") as sem1_payment_status'),
-            DB::raw('sap1.paid_at as sem1_paid_at'),
-            DB::raw('sap1.tuition_amount as sem1_tuition_amount'),
+    // amount:
+    // - sem1 => sap1
+    // - sem2 => sap2
+    // - year => sap1 + sap2
+    $periodAmountSql = $semester === 1
+        ? "COALESCE(sap1.tuition_amount, 0)"
+        : ($semester === 2
+            ? "COALESCE(sap2.tuition_amount, 0)"
+            : "(COALESCE(sap1.tuition_amount, 0) + COALESCE(sap2.tuition_amount, 0))");
 
-            // Semester 2
-            DB::raw('COALESCE(sap2.payment_status, "PENDING") as sem2_payment_status'),
-            DB::raw('sap2.paid_at as sem2_paid_at'),
-            DB::raw('sap2.tuition_amount as sem2_tuition_amount'),
+    // ✅ IMPORTANT: semester must be NULL for full year, not 0 (prevents frontend N/A)
+    $periodSemesterSql = $semester === 0 ? "NULL" : (string)$semester;
 
-            // Year computed
-            DB::raw("$yearStatusSql as year_payment_status"),
+    $q->select([
+        'r.*',
+        DB::raw("$deptNameSql as department_name"),
+        DB::raw("$majorNameSql as major_name"),
+        DB::raw('s.student_code as student_code'),
 
-            // ✅ PERIOD FIELDS (WHAT FRONTEND USES)
-            DB::raw("$periodStatusSql as period_payment_status"),
-            DB::raw("$periodPaidAtSql as period_paid_at"),
-            DB::raw("$periodAmountSql as period_tuition_amount"),
-            DB::raw("$periodSemesterSql as period_semester"),
-            DB::raw("r.academic_year as period_academic_year"),
+        // Semester 1 raw
+        DB::raw('COALESCE(sap1.payment_status, "PENDING") as sem1_payment_status'),
+        DB::raw('sap1.paid_at as sem1_paid_at'),
+        DB::raw('sap1.tuition_amount as sem1_tuition_amount'),
 
-            DB::raw('r.academic_year as report_academic_year'),
-        ]);
+        // Semester 2 raw
+        DB::raw('COALESCE(sap2.payment_status, "PENDING") as sem2_payment_status'),
+        DB::raw('sap2.paid_at as sem2_paid_at'),
+        DB::raw('sap2.tuition_amount as sem2_tuition_amount'),
 
-        // ===== Filters =====
-        if ($request->filled('department_id')) $q->where('r.department_id', $request->department_id);
-        if ($request->filled('major_id')) $q->where('r.major_id', $request->major_id);
-        if ($request->filled('shift')) $q->where('r.shift', $request->shift);
-        if ($request->filled('gender')) $q->where('r.gender', $request->gender);
+        // Year computed
+        DB::raw("$yearStatusSql as year_payment_status"),
 
-        if ($request->filled('date_from')) $q->whereDate('r.created_at', '>=', $request->date_from);
-        if ($request->filled('date_to')) $q->whereDate('r.created_at', '<=', $request->date_to);
+        // ✅ PERIOD fields (frontend uses these)
+        DB::raw("$periodStatusSql as period_payment_status"),
+        DB::raw("$periodPaidAtSql as period_paid_at"),
+        DB::raw("$periodAmountSql as period_tuition_amount"),
+        DB::raw("$periodSemesterSql as period_semester"),
+        DB::raw("r.academic_year as period_academic_year"),
 
-        if (!empty($academicYear) && $this->hasColumn('registrations', 'academic_year')) {
-            $q->where('r.academic_year', $academicYear);
-        }
+        DB::raw('r.academic_year as report_academic_year'),
+    ]);
 
-        // Payment status filter applies by semester selection
-        if ($request->filled('payment_status')) {
-            $target = strtoupper(trim($request->payment_status));
+    // ===== Filters =====
+    if ($request->filled('department_id')) $q->where('r.department_id', $request->department_id);
+    if ($request->filled('major_id')) $q->where('r.major_id', $request->major_id);
+    if ($request->filled('shift')) $q->where('r.shift', $request->shift);
+    if ($request->filled('gender')) $q->where('r.gender', $request->gender);
 
-            if ($semester === 1) {
-                $q->whereRaw('UPPER(COALESCE(sap1.payment_status,"PENDING")) = ?', [$target]);
-            } elseif ($semester === 2) {
-                $q->whereRaw('UPPER(COALESCE(sap2.payment_status,"PENDING")) = ?', [$target]);
-            } else {
-                // YEAR: target can be PAID / PARTIAL / PENDING
-                $q->whereRaw("$yearStatusSql = ?", [$target]);
-            }
-        }
+    if ($request->filled('date_from')) $q->whereDate('r.created_at', '>=', $request->date_from);
+    if ($request->filled('date_to')) $q->whereDate('r.created_at', '<=', $request->date_to);
 
-        return $q;
+    if (!empty($academicYear) && $this->hasColumn('registrations', 'academic_year')) {
+        $q->where('r.academic_year', $academicYear);
     }
+
+    // Payment status filter depends on selected semester
+    if ($request->filled('payment_status')) {
+        $target = strtoupper(trim($request->payment_status));
+
+        if ($semester === 1) {
+            $q->whereRaw('UPPER(COALESCE(sap1.payment_status,"PENDING")) = ?', [$target]);
+        } elseif ($semester === 2) {
+            $q->whereRaw('UPPER(COALESCE(sap2.payment_status,"PENDING")) = ?', [$target]);
+        } else {
+            // YEAR: PAID / PARTIAL / PENDING
+            $q->whereRaw("$yearStatusSql = ?", [$target]);
+        }
+    }
+
+    return $q;
+}
+
 
     /* ================== GENERATE (JSON) ================== */
 
