@@ -12,12 +12,22 @@ class Student extends Model
     protected $table = 'students';
     protected $appends = ['profile_picture_url'];
 
-    public function getProfilePictureUrlAttribute()
-    {
-        return $this->profile_picture_path
-            ? asset('uploads/profiles/' . basename($this->profile_picture_path))
-            : null;
+  public function getProfilePictureUrlAttribute()
+{
+    // 1️⃣ student image (old style)
+    if (!empty($this->profile_picture_path)) {
+        return asset('uploads/profiles/' . basename($this->profile_picture_path));
     }
+
+    // 2️⃣ user image (new style)
+    if ($this->relationLoaded('user') && !empty($this->user?->profile_picture_path)) {
+        return asset('uploads/profiles/' . basename($this->user->profile_picture_path));
+    }
+
+    // 3️⃣ no image
+    return null;
+}
+
 
     protected $fillable = [
         'student_code',
