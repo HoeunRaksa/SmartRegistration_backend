@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CourseEnrollment;
-use App\Models\Student;
 use App\Models\Course;
+use App\Models\Student;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -13,79 +13,165 @@ class AdminEnrollmentController extends Controller
 {
     /**
      * GET /api/admin/enrollments
+     * Admin overview
      */
-    public function index(Request $request)
-    {
-        try {
-            $enrollments = CourseEnrollment::with(['student', 'course'])
-                ->orderByDesc('id')
-                ->get()
-                ->map(function ($e) {
-                    return [
-                        'id' => $e->id,
-                        'student_id' => $e->student_id,
-                        'course_id' => $e->course_id,
-                        'status' => $e->status,
-                        'created_at' => $e->created_at,
-                        'updated_at' => $e->updated_at,
+ /**
+ * GET /api/admin/enrollments
+ * Query params (all optional):
+ * - department_id
+ * - major_id
+ * - status (enrolled|completed|dropped)
+ * - academic_year (ex: 2025-2026)
+ * - semester (1|2|3)
+ * - q (search: student code/name, course name)
+ */
+public function index(Request $request)
+{
+    try {
+        $departmentId = $request->query('department_id');
+        $majorId      = $request->query('major_id');
+        $status       = $request->query('status');
+        $academicYear = $request->query('academic_year');
+        $semester     = $request->query('semester');
+        $q            = trim((string)$request->query('q', ''));
 
-                        // helpful for admin UI
-                        'student_name' => $e->student->full_name ?? $e->student->name ?? null,
-                        'student_code' => $e->student->student_code ?? null,
+        $enrollmentsQ = CourseEnrollment::query()
+            ->with([
+                // load student
+                'student:id,student_code,full_name_en,full_name_kh,department_id,major_id',
+                // load course + its nested (so display_name works if you build from relations)
+                'course' => function ($cq) {
+                    $cq->with([
+                        'classGroup:id,class_name',
+                        'majorSubject.subject:id,subject_name',
+                        'majorSubject.major:id,major_name,department_id',
+                        'teacher:id,name,full_name'
+                    ]);
+                }
+            ]);
 
-                        'course_code' => $e->course->course_code ?? null,
-                        'course_name' => $e->course->course_name ?? null,
-                        'instructor'  => $e->course->instructor ?? ($e->course->teacher ?? null),
-                    ];
-                });
-
-            return response()->json(['data' => $enrollments], 200);
-        } catch (\Throwable $e) {
-            Log::error('AdminEnrollmentController@index error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to load enrollments'], 500);
+        // ===== Filters by student department/major =====
+        if (!empty($departmentId)) {
+            $enrollmentsQ->whereHas('student', function ($sq) use ($departmentId) {
+                $sq->where('department_id', $departmentId);
+            });
         }
+
+        if (!empty($majorId)) {
+            $enrollmentsQ->whereHas('student', function ($sq) use ($majorId) {
+                $sq->where('major_id', $majorId);
+            });
+        }
+
+        // ===== Filters by enrollment status =====
+        if (!empty($status)) {
+            $enrollmentsQ->where('status', $status);
+        }
+
+        // ===== Filters by course year/semester =====
+        if (!empty($academicYear)) {
+            $enrollmentsQ->whereHas('course', function ($cq) use ($academicYear) {
+                $cq->where('academic_year', $academicYear);
+            });
+        }
+
+        if (!empty($semester)) {
+            $enrollmentsQ->whereHas('course', function ($cq) use ($semester) {
+                $cq->where('semester', (int)$semester);
+            });
+        }
+
+        // ===== Search (student code/name or course display info) =====
+        if ($q !== '') {
+            $enrollmentsQ->where(function ($root) use ($q) {
+                $root->whereHas('student', function ($sq) use ($q) {
+                    $sq->where('student_code', 'like', "%{$q}%")
+                        ->orWhere('full_name_en', 'like', "%{$q}%")
+                        ->orWhere('full_name_kh', 'like', "%{$q}%");
+                })->orWhereHas('course.majorSubject.subject', function ($subQ) use ($q) {
+                    $subQ->where('subject_name', 'like', "%{$q}%");
+                })->orWhereHas('course.classGroup', function ($cgQ) use ($q) {
+                    $cgQ->where('class_name', 'like', "%{$q}%");
+                });
+            });
+        }
+
+        $enrollments = $enrollmentsQ
+            ->orderByDesc('id')
+            ->get()
+            ->map(function ($e) {
+                $studentName =
+                    $e->student?->full_name_en
+                    ?? $e->student?->full_name_kh
+                    ?? null;
+
+                return [
+                    'id' => $e->id,
+
+                    'student_id'      => $e->student_id,
+                    'student_code'    => $e->student?->student_code,
+                    'student_name'    => $studentName,
+                    'department_id'   => $e->student?->department_id,
+                    'major_id'        => $e->student?->major_id,
+
+                    'course_id'       => $e->course_id,
+                    'course_name'     => $e->course?->display_name, // ✅ your computed name
+                    'academic_year'   => $e->course?->academic_year,
+                    'semester'        => $e->course?->semester,
+
+                    'status'          => $e->status,
+                    'progress'        => $e->progress,
+                    'enrolled_at'     => $e->enrolled_at,
+                    'dropped_at'      => $e->dropped_at,
+
+                    'created_at'      => $e->created_at,
+                    'updated_at'      => $e->updated_at,
+                ];
+            });
+
+        return response()->json(['data' => $enrollments], 200);
+
+    } catch (\Throwable $e) {
+        Log::error('AdminEnrollmentController@index error', [
+            'message' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+        return response()->json(['message' => 'Failed to load enrollments'], 500);
     }
+}
+
 
     /**
      * POST /api/admin/enrollments
-     * Body: { student_id, course_id, status? }
+     * Manual enroll OR re-enroll (next year, repeat class)
      */
     public function store(Request $request)
     {
         $data = $request->validate([
             'student_id' => 'required|exists:students,id',
             'course_id'  => 'required|exists:courses,id',
-            'status'     => 'nullable|string|in:enrolled,completed,dropped',
+            'status'     => 'nullable|in:enrolled,completed,dropped',
         ]);
 
         $status = $data['status'] ?? 'enrolled';
 
+        $course = Course::findOrFail($data['course_id']);
+
+        /**
+         * IMPORTANT:
+         * Enrollment uniqueness is:
+         * student_id + course_id
+         * (course already includes academic_year + semester)
+         */
         $existing = CourseEnrollment::where('student_id', $data['student_id'])
             ->where('course_id', $data['course_id'])
             ->first();
 
-        // If already enrolled, stop
-        if ($existing && $existing->status === 'enrolled' && $status === 'enrolled') {
-            return response()->json(['message' => 'Student already enrolled'], 409);
-        }
-
-        // Reuse record if exists, otherwise create
         if ($existing) {
-            $update = ['status' => $status];
-
-            if ($status === 'enrolled') {
-                $update['progress'] = 0;
-                $update['enrolled_at'] = now();
-                $update['dropped_at'] = null;
-            }
-
-            if ($status === 'dropped') {
-                $update['dropped_at'] = now();
-            }
-
-            $existing->update($update);
-
-            return response()->json(['message' => 'Enrollment updated', 'data' => $existing], 200);
+            // Already enrolled in THIS course instance
+            return response()->json([
+                'message' => 'Student already enrolled in this course.',
+            ], 409);
         }
 
         $enrollment = CourseEnrollment::create([
@@ -97,48 +183,65 @@ class AdminEnrollmentController extends Controller
             'dropped_at'  => $status === 'dropped' ? now() : null,
         ]);
 
-        return response()->json(['message' => 'Enrollment created', 'data' => $enrollment], 201);
-    }
-
-
-    /**
-     * DELETE /api/admin/enrollments/{id}
-     */
-    public function destroy($id)
-    {
-        try {
-            $enrollment = CourseEnrollment::findOrFail($id);
-            $enrollment->delete();
-
-            return response()->json(['message' => 'Enrollment deleted'], 200);
-        } catch (\Throwable $e) {
-            Log::error('AdminEnrollmentController@destroy error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to delete enrollment'], 500);
-        }
+        return response()->json([
+            'message' => 'Enrollment created',
+            'data' => $enrollment->load(['student', 'course']),
+        ], 201);
     }
 
     /**
      * PUT /api/admin/enrollments/{id}/status
-     * Body: { status }
+     * Human decision: complete / drop / re-enroll
      */
     public function updateStatus(Request $request, $id)
     {
-        try {
-            $data = $request->validate([
-                'status' => 'required|string|in:enrolled,completed,dropped',
-            ]);
+        $data = $request->validate([
+            'status' => 'required|in:enrolled,completed,dropped',
+        ]);
 
+        try {
             $enrollment = CourseEnrollment::findOrFail($id);
-            $enrollment->status = $data['status'];
-            $enrollment->save();
+
+            $update = ['status' => $data['status']];
+
+            if ($data['status'] === 'enrolled') {
+                $update['enrolled_at'] = now();
+                $update['dropped_at']  = null;
+                $update['progress']    = 0;
+            }
+
+            if ($data['status'] === 'completed') {
+                $update['progress'] = 100;
+            }
+
+            if ($data['status'] === 'dropped') {
+                $update['dropped_at'] = now();
+            }
+
+            $enrollment->update($update);
 
             return response()->json([
-                'message' => 'Enrollment status updated',
+                'message' => 'Enrollment updated',
                 'data' => $enrollment->load(['student', 'course']),
-            ], 200);
+            ]);
         } catch (\Throwable $e) {
-            Log::error('AdminEnrollmentController@updateStatus error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to update status'], 500);
+            Log::error('Update enrollment status failed', ['error' => $e->getMessage()]);
+            return response()->json(['message' => 'Failed to update enrollment'], 500);
+        }
+    }
+
+    /**
+     * DELETE /api/admin/enrollments/{id}
+     * Hard delete (admin only)
+     */
+    public function destroy($id)
+    {
+        try {
+            CourseEnrollment::findOrFail($id)->delete();
+            return response()->json(['message' => 'Enrollment deleted'], 200);
+        } catch (\Throwable $e) {
+            Log::error('Delete enrollment failed', ['error' => $e->getMessage()]);
+            return response()->json(['message' => 'Failed to delete enrollment'], 500);
         }
     }
 }
