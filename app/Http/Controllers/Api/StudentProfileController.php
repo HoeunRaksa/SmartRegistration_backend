@@ -37,7 +37,7 @@ class StudentProfileController extends Controller
                 // Email from users table
                 'email' => $student->user->email ?? null,
 
-                // Phone + address from students table
+                // Phone + address from  students table
                 'phone' => $student->phone_number,
                 'phone_number' => $student->phone_number,
                 'address' => $student->address,
