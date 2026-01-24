@@ -18,26 +18,46 @@ class StudentController extends Controller
      * GET /api/students
      * Admin / Staff only
      */
-    public function index()
-    {
-        return response()->json([
-            'success' => true,
-            'data' => Student::with(['department', 'user', 'registration'])->get()
-        ]);
-    }
+public function index()
+{
+    $students = Student::with(['department', 'user', 'registration'])->get();
+
+    $students->transform(function ($student) {
+        if ($student->user && $student->user->profile_picture_path) {
+            $student->profile_picture_url =
+                url('uploads/profiles/' . basename($student->user->profile_picture_path));
+        } else {
+            $student->profile_picture_url = null;
+        }
+        return $student;
+    });
+
+    return response()->json([
+        'success' => true,
+        'data' => $students
+    ]);
+}
+
 
     /**
      * GET /api/students/{id}
      */
-    public function show($id)
-    {
-        $student = Student::with(['department', 'user', 'registration'])->findOrFail($id);
+public function show($id)
+{
+    $student = Student::with(['department', 'user', 'registration'])->findOrFail($id);
 
-        return response()->json([
-            'success' => true,
-            'data' => $student
-        ]);
+    if ($student->user && $student->user->profile_picture_path) {
+        $student->profile_picture_url =
+            url('uploads/profiles/' . basename($student->user->profile_picture_path));
+    } else {
+        $student->profile_picture_url = null;
     }
+
+    return response()->json([
+        'success' => true,
+        'data' => $student
+    ]);
+}
 
     /**
      * POST /api/students
