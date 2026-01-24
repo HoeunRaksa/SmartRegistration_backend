@@ -40,6 +40,10 @@ use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\StudentClassGroupController;
 
 use App\Http\Controllers\Api\ChatController;
+
+use Illuminate\Support\Facades\Broadcast;
+
+Broadcast::routes(['middleware' => ['auth:sanctum']]);
 /*
 |--------------------------------------------------------------------------
 | API Routes
