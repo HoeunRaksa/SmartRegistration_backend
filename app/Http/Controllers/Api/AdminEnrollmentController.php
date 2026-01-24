@@ -32,25 +32,39 @@ public function index(Request $request)
         $status       = $request->query('status');
         $academicYear = $request->query('academic_year');
         $semester     = $request->query('semester');
-        $q            = trim((string) $request->query('q', ''));
+        $q            = trim((string)$request->query('q', ''));
 
         $enrollmentsQ = \App\Models\CourseEnrollment::query()
             ->with([
-                'student', // ✅ no column list (prevents unknown column crash)
+                // ✅ student + user email
+                'student' => function ($sq) {
+                    $sq->select(
+                        'id',
+                        'user_id',
+                        'student_code',
+                        'full_name_en',
+                        'full_name_kh',
+                        'department_id',
+                        'phone_number',
+                        'address',
+                        'profile_picture_path'
+                    )->with([
+                        'user:id,email,name,profile_picture_path'
+                    ]);
+                },
+
                 'course' => function ($cq) {
                     $cq->with([
-                        'classGroup',
-                        'majorSubject.subject',
-                        'majorSubject.major',
-                        'teacher',
+                        'classGroup:id,class_name',
+                        'majorSubject.subject:id,subject_name',
+                        'majorSubject.major:id,major_name,department_id',
+                        'teacher:id,name,full_name',
                     ]);
                 },
             ]);
 
         if (!empty($departmentId)) {
-            $enrollmentsQ->whereHas('student', function ($sq) use ($departmentId) {
-                $sq->where('department_id', $departmentId);
-            });
+            $enrollmentsQ->whereHas('student', fn($sq) => $sq->where('department_id', $departmentId));
         }
 
         if (!empty($status)) {
@@ -58,15 +72,11 @@ public function index(Request $request)
         }
 
         if (!empty($academicYear)) {
-            $enrollmentsQ->whereHas('course', function ($cq) use ($academicYear) {
-                $cq->where('academic_year', $academicYear);
-            });
+            $enrollmentsQ->whereHas('course', fn($cq) => $cq->where('academic_year', $academicYear));
         }
 
         if (!empty($semester)) {
-            $enrollmentsQ->whereHas('course', function ($cq) use ($semester) {
-                $cq->where('semester', (int) $semester);
-            });
+            $enrollmentsQ->whereHas('course', fn($cq) => $cq->where('semester', (int)$semester));
         }
 
         if ($q !== '') {
@@ -74,69 +84,59 @@ public function index(Request $request)
                 $root->whereHas('student', function ($sq) use ($q) {
                     $sq->where('student_code', 'like', "%{$q}%")
                         ->orWhere('full_name_en', 'like', "%{$q}%")
-                        ->orWhere('full_name_kh', 'like', "%{$q}%");
-                    // ✅ don't search email/phone unless you confirm columns exist
+                        ->orWhere('full_name_kh', 'like', "%{$q}%")
+                        // ✅ search user email too
+                        ->orWhereHas('user', fn($uq) => $uq->where('email', 'like', "%{$q}%"));
                 })
-                ->orWhereHas('course.majorSubject.subject', function ($subQ) use ($q) {
-                    $subQ->where('subject_name', 'like', "%{$q}%");
-                })
-                ->orWhereHas('course.classGroup', function ($cgQ) use ($q) {
-                    $cgQ->where('class_name', 'like', "%{$q}%");
-                });
+                ->orWhereHas('course.majorSubject.subject', fn($subQ) => $subQ->where('subject_name', 'like', "%{$q}%"))
+                ->orWhereHas('course.classGroup', fn($cgQ) => $cgQ->where('class_name', 'like', "%{$q}%"));
             });
         }
 
         $enrollments = $enrollmentsQ->orderByDesc('id')->get()->map(function ($e) {
             $student = $e->student;
+            $user    = $student?->user;
 
-            $studentName =
-                $student?->full_name_en
-                ?: $student?->full_name_kh
-                ?: $student?->name
-                ?: null;
+            $studentName = $student?->full_name_en ?: ($student?->full_name_kh ?: null);
 
-            // ✅ Use accessor if you already have profile_picture_url appended
-            $profileUrl = $student?->profile_picture_url ?? null;
+            // ✅ profile image: student.profile_picture_path OR user.profile_picture_path
+            $path = $student?->profile_picture_path ?: $user?->profile_picture_path;
+            $profileUrl = $path ? asset('uploads/profiles/' . basename($path)) : null;
 
             return [
                 'id' => $e->id,
 
-                'student_id'   => $e->student_id,
-                'student_code' => $student?->student_code,
-                'student_name' => $studentName,
-                'department_id'=> $student?->department_id,
+                'student_id'    => $e->student_id,
+                'student_code'  => $student?->student_code,
+                'student_name'  => $studentName,
+                'department_id' => $student?->department_id,
 
-                // ✅ only return fields that you know exist
-                'phone_number' => $student?->phone_number ?? null,
-                'address'      => $student?->address ?? null,
+                // ✅ THIS is what fixes "Email N/A"
+                'email'   => $user?->email ?? null,
+                'phone'   => $student?->phone_number ?? null,
+                'address' => $student?->address ?? null,
+
                 'profile_picture_url' => $profileUrl,
 
-                'course_id'    => $e->course_id,
-                'course_name'  => $e->course?->display_name ?? null,
-                'academic_year'=> $e->course?->academic_year ?? null,
-                'semester'     => $e->course?->semester ?? null,
+                'course_id'     => $e->course_id,
+                'course_name'   => $e->course?->display_name,
+                'academic_year' => $e->course?->academic_year,
+                'semester'      => $e->course?->semester,
 
-                'status'       => $e->status,
-                'progress'     => $e->progress,
-                'enrolled_at'  => $e->enrolled_at,
-                'dropped_at'   => $e->dropped_at,
+                'status'      => $e->status,
+                'progress'    => $e->progress,
+                'enrolled_at' => $e->enrolled_at,
+                'dropped_at'  => $e->dropped_at,
 
-                'created_at'   => $e->created_at,
-                'updated_at'   => $e->updated_at,
+                'created_at' => $e->created_at,
+                'updated_at' => $e->updated_at,
             ];
         });
 
         return response()->json(['data' => $enrollments], 200);
     } catch (\Throwable $e) {
-        \Illuminate\Support\Facades\Log::error('AdminEnrollmentController@index error', [
-            'message' => $e->getMessage(),
-            'trace'   => $e->getTraceAsString(),
-        ]);
-        return response()->json([
-            'message' => 'Failed to load enrollments',
-            // ✅ TEMP: uncomment this to see exact error in frontend while debugging
-            // 'debug' => $e->getMessage(),
-        ], 500);
+        \Log::error('AdminEnrollmentController@index error', ['message' => $e->getMessage()]);
+        return response()->json(['message' => 'Failed to load enrollments'], 500);
     }
 }
 
