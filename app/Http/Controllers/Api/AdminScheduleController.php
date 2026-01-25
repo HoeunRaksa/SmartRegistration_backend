@@ -16,231 +16,216 @@ class AdminScheduleController extends Controller
      * GET /api/admin/schedules
      * Get all schedules with course details (+ room_id support)
      */
-    public function index(Request $request)
-    {
-        try {
-            $schedules = ClassSchedule::with([
-                    'course.majorSubject.subject',
-                    'course.classGroup',
-                    'course.teacher',
-                    // If you renamed the relationship to avoid collision:
-                    // 'roomRef.building',
-                    // If you did NOT rename it (not recommended), remove the legacy string "room" column or rename relation.
-                ])
-                ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
-                ->orderBy('start_time')
-                ->get()
-                ->map(function ($schedule) {
-                    $course = $schedule->course;
+public function index(Request $request)
+{
+    try {
+        $schedules = ClassSchedule::with([
+                'course.majorSubject.subject',
+                'course.classGroup',
+                'course.teacher',
+                'roomRef.building' // ✅ Use the renamed relationship
+            ])
+            ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
+            ->orderBy('start_time')
+            ->get()
+            ->map(function ($schedule) {
+                $course = $schedule->course;
+                $room = $schedule->roomRef; // ✅ Access renamed relationship
+                $building = $room?->building;
 
-                    $courseLabel = $this->buildCourseLabel($course);
+                // Build course label
+                $courseLabel = $this->buildCourseLabel($course);
 
-                    $instructor = $course->teacher?->name ??
-                                  $course->teacher?->full_name ??
-                                  $course->instructor ??
-                                  'N/A';
+                // Get instructor
+                $instructor = $course->teacher?->name ?? 
+                             $course->teacher?->full_name ?? 
+                             $course->instructor ?? 
+                             'N/A';
 
-                    return [
-                        'id' => $schedule->id,
-                        'course_id' => $schedule->course_id,
+                // ✅ Build room display info
+                $roomDisplay = null;
+                $buildingCode = null;
+                $roomNumber = null;
+                
+                if ($room) {
+                    $buildingCode = $building?->building_code;
+                    $roomNumber = $room->room_number;
+                    
+                    // Full room name: "A-101" or just "101" if no building
+                    $roomDisplay = $buildingCode 
+                        ? "{$buildingCode}-{$roomNumber}" 
+                        : $roomNumber;
+                }
 
-                        'course_label' => $courseLabel,
-                        'instructor' => $instructor,
-                        'shift' => $course->classGroup?->shift ?? null,
-                        'class_name' => $course->classGroup?->class_name ?? null,
+                return [
+                    'id' => $schedule->id,
+                    'course_id' => $schedule->course_id,
 
-                        'day_of_week' => $schedule->day_of_week,
-                        'start_time' => substr((string) $schedule->start_time, 0, 5),
-                        'end_time' => substr((string) $schedule->end_time, 0, 5),
+                    // Course info
+                    'course_label' => $courseLabel,
+                    'instructor' => $instructor,
+                    'shift' => $course->classGroup?->shift ?? null,
+                    'class_name' => $course->classGroup?->class_name ?? null,
 
-                        // Room fields (support both legacy + FK)
-                        'room' => $schedule->room,
-                        'room_id' => $schedule->room_id,
+                    // Schedule details
+                    'day_of_week' => $schedule->day_of_week,
+                    'start_time' => substr((string) $schedule->start_time, 0, 5),
+                    'end_time' => substr((string) $schedule->end_time, 0, 5),
 
-                        'session_type' => $schedule->session_type,
+                    // ✅ Room info (both legacy and new)
+                    'room' => $schedule->room, // Legacy string column (for backward compatibility)
+                    'room_id' => $schedule->room_id, // FK to rooms table
+                    'room_number' => $roomNumber, // Just the room number
+                    'building_code' => $buildingCode, // Just the building code
+                    'room_full_name' => $roomDisplay, // "A-101" format
+                    'building_id' => $room?->building_id, // For editing
 
-                        'created_at' => $schedule->created_at,
-                        'updated_at' => $schedule->updated_at,
-                    ];
-                });
+                    'session_type' => $schedule->session_type,
 
-            return response()->json([
-                'success' => true,
-                'data' => $schedules,
-                'total' => $schedules->count(),
-            ], 200);
+                    // Timestamps
+                    'created_at' => $schedule->created_at,
+                    'updated_at' => $schedule->updated_at,
+                ];
+            });
 
-        } catch (\Throwable $e) {
-            Log::error('AdminScheduleController@index error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to load schedules',
-                'error' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
+        return response()->json([
+            'success' => true,
+            'data' => $schedules,
+            'total' => $schedules->count(),
+        ], 200);
+
+    } catch (\Throwable $e) {
+        Log::error('AdminScheduleController@index error: ' . $e->getMessage());
+        Log::error('Stack trace: ' . $e->getTraceAsString());
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to load schedules',
+            'error' => config('app.debug') ? $e->getMessage() : null
+        ], 500);
     }
+}
 
     /**
      * POST /api/admin/schedules
      * Create a new schedule (+ room_id support)
      */
-    public function store(Request $request)
-    {
-        try {
-            $validated = $request->validate([
-                'course_id' => 'required|integer|exists:courses,id',
-                'day_of_week' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
-                'start_time' => 'required|date_format:H:i',
-                'end_time' => 'required|date_format:H:i|after:start_time',
+public function store(Request $request)
+{
+    try {
+        $validated = $request->validate([
+            'course_id' => 'required|integer|exists:courses,id',
+            'day_of_week' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i|after:start_time',
+            'room_id' => 'nullable|integer|exists:rooms,id',
+            'session_type' => 'nullable|string|max:50',
+        ]);
 
-                // Accept both for compatibility
-                'room' => 'nullable|string|max:100',
-                'room_id' => 'nullable|integer|exists:rooms,id',
+        DB::beginTransaction();
 
-                'session_type' => 'nullable|string|max:50',
-            ]);
+        $schedule = ClassSchedule::create($validated);
 
-            $conflict = $this->checkScheduleConflict(
-                $validated['course_id'],
-                $validated['day_of_week'],
-                $validated['start_time'],
-                $validated['end_time'],
-                null,
-                $validated['room_id'] ?? null
-            );
+        DB::commit();
 
-            if ($conflict) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Schedule conflict detected',
-                    'conflict' => $conflict
-                ], 422);
-            }
+        // ✅ Load relationships including room
+        $schedule->load([
+            'course.majorSubject.subject',
+            'course.classGroup',
+            'course.teacher',
+            'roomRef.building'
+        ]);
 
-            DB::beginTransaction();
+        return response()->json([
+            'success' => true,
+            'message' => 'Schedule created successfully',
+            'data' => $this->formatScheduleResponse($schedule),
+        ], 201);
 
-            $schedule = ClassSchedule::create($validated);
+    } catch (ValidationException $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Validation failed',
+            'errors' => $e->errors()
+        ], 422);
 
-            DB::commit();
-
-            $schedule->load([
-                'course.majorSubject.subject',
-                'course.classGroup',
-                'course.teacher'
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Schedule created successfully',
-                'data' => $this->formatScheduleResponse($schedule),
-            ], 201);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $e->errors()
-            ], 422);
-
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('AdminScheduleController@store error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to create schedule',
-                'error' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        Log::error('AdminScheduleController@store error: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to create schedule',
+            'error' => config('app.debug') ? $e->getMessage() : null
+        ], 500);
     }
+}
 
     /**
      * PUT /api/admin/schedules/{id}
      * Update an existing schedule (+ room_id support)
      */
-    public function update(Request $request, $id)
-    {
-        try {
-            $schedule = ClassSchedule::findOrFail($id);
+public function update(Request $request, $id)
+{
+    try {
+        $schedule = ClassSchedule::findOrFail($id);
 
-            $validated = $request->validate([
-                'course_id' => 'sometimes|required|integer|exists:courses,id',
-                'day_of_week' => 'sometimes|required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
-                'start_time' => 'sometimes|required|date_format:H:i',
-                'end_time' => 'sometimes|required|date_format:H:i',
+        $validated = $request->validate([
+            'course_id' => 'sometimes|required|integer|exists:courses,id',
+            'day_of_week' => 'sometimes|required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
+            'start_time' => 'sometimes|required|date_format:H:i',
+            'end_time' => 'sometimes|required|date_format:H:i',
+            'room_id' => 'nullable|integer|exists:rooms,id', // ✅ Validate room FK
+            'session_type' => 'nullable|string|max:50',
+        ]);
 
-                // Accept both for compatibility
-                'room' => 'nullable|string|max:100',
-                'room_id' => 'nullable|integer|exists:rooms,id',
+        // Validate time order
+        $startTime = $validated['start_time'] ?? substr((string) $schedule->start_time, 0, 5);
+        $endTime = $validated['end_time'] ?? substr((string) $schedule->end_time, 0, 5);
 
-                'session_type' => 'nullable|string|max:50',
-            ]);
-
-            $startTime = $validated['start_time'] ?? substr((string) $schedule->start_time, 0, 5);
-            $endTime   = $validated['end_time'] ?? substr((string) $schedule->end_time, 0, 5);
-
-            if ($endTime <= $startTime) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'End time must be after start time'
-                ], 422);
-            }
-
-            $courseId   = $validated['course_id'] ?? $schedule->course_id;
-            $dayOfWeek  = $validated['day_of_week'] ?? $schedule->day_of_week;
-            $roomId     = array_key_exists('room_id', $validated) ? $validated['room_id'] : $schedule->room_id;
-
-            $conflict = $this->checkScheduleConflict(
-                $courseId,
-                $dayOfWeek,
-                $startTime,
-                $endTime,
-                $id,
-                $roomId
-            );
-
-            if ($conflict) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Schedule conflict detected',
-                    'conflict' => $conflict
-                ], 422);
-            }
-
-            DB::beginTransaction();
-
-            $schedule->update($validated);
-
-            DB::commit();
-
-            $schedule = $schedule->fresh([
-                'course.majorSubject.subject',
-                'course.classGroup',
-                'course.teacher'
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Schedule updated successfully',
-                'data' => $this->formatScheduleResponse($schedule),
-            ], 200);
-
-        } catch (ValidationException $e) {
+        if ($endTime <= $startTime) {
             return response()->json([
                 'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $e->errors()
+                'message' => 'End time must be after start time'
             ], 422);
-
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('AdminScheduleController@update error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update schedule',
-                'error' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
         }
+
+        DB::beginTransaction();
+
+        $schedule->update($validated);
+
+        DB::commit();
+
+        // ✅ Reload with relationships
+        $schedule = $schedule->fresh([
+            'course.majorSubject.subject',
+            'course.classGroup',
+            'course.teacher',
+            'roomRef.building'
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Schedule updated successfully',
+            'data' => $this->formatScheduleResponse($schedule),
+        ], 200);
+
+    } catch (ValidationException $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Validation failed',
+            'errors' => $e->errors()
+        ], 422);
+
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        Log::error('AdminScheduleController@update error: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to update schedule',
+            'error' => config('app.debug') ? $e->getMessage() : null
+        ], 500);
     }
+}
 
     /**
      * DELETE /api/admin/schedules/{id}
