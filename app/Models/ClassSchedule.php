@@ -14,12 +14,19 @@ class ClassSchedule extends Model
         'day_of_week',
         'start_time',
         'end_time',
-        'room',
+        'room',          // Keep for backward compatibility
+        'room_id',       // NEW
         'session_type',
     ];
 
     public function course()
     {
         return $this->belongsTo(Course::class);
+    }
+
+    // NEW
+    public function room()
+    {
+        return $this->belongsTo(Room::class);
     }
 }

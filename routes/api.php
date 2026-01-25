@@ -34,7 +34,8 @@ use App\Http\Controllers\Api\ClassGroupController;
 use App\Http\Controllers\Api\MajorCapacityController;
 use App\Http\Controllers\Api\MajorQuotaController;
 use App\Http\Controllers\Api\TeacherController;
-
+use App\Http\Controllers\Api\BuildingController;
+use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\StudentClassGroupController;
 
 use App\Http\Controllers\Api\ChatController;
@@ -214,6 +215,24 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::post('/class-sessions', [AdminClassSessionController::class, 'store']);
         Route::put('/class-sessions/{id}', [AdminClassSessionController::class, 'update']);
         Route::delete('/class-sessions/{id}', [AdminClassSessionController::class, 'destroy']);
+
+
+        Route::get('/buildings', [BuildingController::class, 'index']);
+        Route::get('/buildings/options', [BuildingController::class, 'options']);
+        Route::get('/buildings/{id}', [BuildingController::class, 'show']);
+        Route::post('/buildings', [BuildingController::class, 'store']);
+        Route::put('/buildings/{id}', [BuildingController::class, 'update']);
+        Route::delete('/buildings/{id}', [BuildingController::class, 'destroy']);
+        
+        // Rooms
+        Route::get('/rooms', [RoomController::class, 'index']);
+        Route::get('/rooms/options', [RoomController::class, 'options']);
+        Route::get('/rooms/by-building/{buildingId}', [RoomController::class, 'byBuilding']);
+        Route::post('/rooms/check-availability', [RoomController::class, 'checkAvailability']);
+        Route::get('/rooms/{id}', [RoomController::class, 'show']);
+        Route::post('/rooms', [RoomController::class, 'store']);
+        Route::put('/rooms/{id}', [RoomController::class, 'update']);
+        Route::delete('/rooms/{id}', [RoomController::class, 'destroy']);
 
 
       // Bulk operations
