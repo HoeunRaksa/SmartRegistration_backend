@@ -36,7 +36,7 @@ class AdminStudentSearchController extends Controller
                 ])
                 ->with([
                     'user:id,email,profile_picture_path',
-                    'registration:id,major_id,department_id,academic_year,semester',
+                    'registration:id,major_id,department_id',
                     'registration.major:id,major_name,department_id',
                 ]);
 
@@ -52,18 +52,8 @@ class AdminStudentSearchController extends Controller
                 });
             }
 
-            // ✅ FIXED: academic_year + semester filter from REGISTRATIONS table
-            // registrations columns: id, student_id, major_id, department_id, academic_year, semester
-            if (!empty($academicYear) || !empty($semester)) {
-                $studentsQ->whereHas('registration', function ($rq) use ($academicYear, $semester) {
-                    if (!empty($academicYear)) {
-                        $rq->where('academic_year', $academicYear);
-                    }
-                    if (!empty($semester)) {
-                        $rq->where('semester', (int)$semester);
-                    }
-                });
-            }
+            // Note: academic_year and semester filters removed as these columns 
+            // don't exist in the registrations table
 
             // ✅ search
             if ($q !== '') {
@@ -102,8 +92,6 @@ class AdminStudentSearchController extends Controller
                     'registration' => [
                         'major_id' => $s->registration?->major_id,
                         'department_id' => $s->registration?->department_id,
-                        'academic_year' => $s->registration?->academic_year,
-                        'semester' => $s->registration?->semester,
                         'major' => [
                             'major_name' => $s->registration?->major?->major_name,
                         ],
