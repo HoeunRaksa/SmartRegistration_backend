@@ -12,10 +12,9 @@ use Illuminate\Support\Facades\DB;
 
 class AdminScheduleController extends Controller
 {
-    /**
-     * GET /api/admin/schedules
-     * Get all schedules with course details (+ room_id support)
-     */
+
+
+   
 public function index(Request $request)
 {
     try {
@@ -490,31 +489,53 @@ public function update(Request $request, $id)
     /**
      * Format schedule response
      */
-    private function formatScheduleResponse($schedule)
-    {
-        $course = $schedule->course;
+/**
+ * Format schedule response
+ */
+private function formatScheduleResponse($schedule)
+{
+    $course = $schedule->course;
+    $room = $schedule->roomRef; // ✅ Use renamed relationship
+    $building = $room?->building;
 
-        return [
-            'id' => $schedule->id,
-            'course_id' => $schedule->course_id,
-            'course_label' => $this->buildCourseLabel($course),
-            'instructor' => $course->teacher?->name ??
-                           $course->teacher?->full_name ??
-                           $course->instructor ??
-                           'N/A',
-            'shift' => $course->classGroup?->shift ?? null,
-            'class_name' => $course->classGroup?->class_name ?? null,
-            'day_of_week' => $schedule->day_of_week,
-            'start_time' => substr((string) $schedule->start_time, 0, 5),
-            'end_time' => substr((string) $schedule->end_time, 0, 5),
-
-            // Room fields (support both legacy + FK)
-            'room' => $schedule->room,
-            'room_id' => $schedule->room_id,
-
-            'session_type' => $schedule->session_type,
-            'created_at' => $schedule->created_at,
-            'updated_at' => $schedule->updated_at,
-        ];
+    // Build room display
+    $roomDisplay = null;
+    $buildingCode = null;
+    $roomNumber = null;
+    
+    if ($room) {
+        $buildingCode = $building?->building_code;
+        $roomNumber = $room->room_number;
+        $roomDisplay = $buildingCode 
+            ? "{$buildingCode}-{$roomNumber}" 
+            : $roomNumber;
     }
+
+    return [
+        'id' => $schedule->id,
+        'course_id' => $schedule->course_id,
+        'course_label' => $this->buildCourseLabel($course),
+        'instructor' => $course->teacher?->name ?? 
+                       $course->teacher?->full_name ?? 
+                       $course->instructor ?? 
+                       'N/A',
+        'shift' => $course->classGroup?->shift ?? null,
+        'class_name' => $course->classGroup?->class_name ?? null,
+        'day_of_week' => $schedule->day_of_week,
+        'start_time' => substr((string) $schedule->start_time, 0, 5),
+        'end_time' => substr((string) $schedule->end_time, 0, 5),
+        
+        // Room info
+        'room' => $schedule->room, // Legacy
+        'room_id' => $schedule->room_id,
+        'room_number' => $roomNumber,
+        'building_code' => $buildingCode,
+        'room_full_name' => $roomDisplay,
+        'building_id' => $room?->building_id,
+        
+        'session_type' => $schedule->session_type,
+        'created_at' => $schedule->created_at,
+        'updated_at' => $schedule->updated_at,
+    ];
+}
 }

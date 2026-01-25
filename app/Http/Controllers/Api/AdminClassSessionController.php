@@ -17,62 +17,136 @@ class AdminClassSessionController extends Controller
      * GET /api/admin/class-sessions
      * Get all class sessions with filters
      */
-    public function index(Request $request)
-    {
-        try {
-            $query = ClassSession::with([
-                'course.majorSubject.subject',
-                'course.classGroup',
-                'course.teacher'
-            ]);
+ public function index(Request $request)
+{
+    try {
+        $query = ClassSession::with([
+            'course.majorSubject.subject',
+            'course.classGroup',
+            'course.teacher',
+            'roomRef.building' // ✅ Use renamed relationship
+        ]);
 
-            // Filter by date range
-            if ($request->start_date) {
-                $query->where('session_date', '>=', $request->start_date);
-            }
-            if ($request->end_date) {
-                $query->where('session_date', '<=', $request->end_date);
-            }
-
-            // Filter by course
-            if ($request->course_id) {
-                $query->where('course_id', $request->course_id);
-            }
-
-            // Filter by specific date
-            if ($request->date) {
-                $query->whereDate('session_date', $request->date);
-            }
-
-            // Filter by day of week (MySQL DAYNAME)
-            if ($request->day_of_week) {
-                $query->whereRaw('DAYNAME(session_date) = ?', [$request->day_of_week]);
-            }
-
-            $sessions = $query
-                ->orderBy('session_date', 'desc')
-                ->orderBy('start_time')
-                ->get()
-                ->map(function ($session) {
-                    return $this->formatSessionResponse($session);
-                });
-
-            return response()->json([
-                'success' => true,
-                'data' => $sessions,
-                'total' => $sessions->count(),
-            ], 200);
-
-        } catch (\Throwable $e) {
-            Log::error('AdminClassSessionController@index error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to load class sessions',
-                'error' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
+        // Filters...
+        if ($request->start_date) {
+            $query->where('session_date', '>=', $request->start_date);
         }
+        if ($request->end_date) {
+            $query->where('session_date', '<=', $request->end_date);
+        }
+        if ($request->course_id) {
+            $query->where('course_id', $request->course_id);
+        }
+        if ($request->date) {
+            $query->whereDate('session_date', $request->date);
+        }
+        if ($request->day_of_week) {
+            $query->whereRaw('DAYNAME(session_date) = ?', [$request->day_of_week]);
+        }
+
+        $sessions = $query
+            ->orderBy('session_date', 'desc')
+            ->orderBy('start_time')
+            ->get()
+            ->map(function ($session) {
+                return $this->formatSessionResponse($session);
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $sessions,
+            'total' => $sessions->count(),
+        ], 200);
+
+    } catch (\Throwable $e) {
+        Log::error('AdminClassSessionController@index error: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to load class sessions',
+            'error' => config('app.debug') ? $e->getMessage() : null
+        ], 500);
+    }
+}
+
+/**
+ * Format session response
+ */
+private function formatSessionResponse($session)
+{
+    $course = $session->course;
+    $room = $session->roomRef; // ✅ Use renamed relationship
+    $building = $room?->building;
+
+    // Build room display
+    $roomDisplay = null;
+    $buildingCode = null;
+    $roomNumber = null;
+    
+    if ($room) {
+        $buildingCode = $building?->building_code;
+        $roomNumber = $room->room_number;
+        $roomDisplay = $buildingCode 
+            ? "{$buildingCode}-{$roomNumber}" 
+            : $roomNumber;
     }
 
+    return [
+        'id' => $session->id,
+        'course_id' => $session->course_id,
+        'course_label' => $this->buildCourseLabel($course),
+        'instructor' => $course->teacher?->name ?? 
+                       $course->teacher?->full_name ?? 
+                       $course->instructor ?? 
+                       'N/A',
+        'shift' => $course->classGroup?->shift ?? null,
+        'class_name' => $course->classGroup?->class_name ?? null,
+        'session_date' => $session->session_date->format('Y-m-d'),
+        'day_of_week' => $session->session_date->format('l'),
+        'start_time' => substr((string) $session->start_time, 0, 5),
+        'end_time' => substr((string) $session->end_time, 0, 5),
+        
+        // Room info
+        'room' => $session->room, // Legacy
+        'room_id' => $session->room_id,
+        'room_number' => $roomNumber,
+        'building_code' => $buildingCode,
+        'room_full_name' => $roomDisplay,
+        'building_id' => $room?->building_id,
+        
+        'session_type' => $session->session_type,
+        'has_attendance' => $session->attendanceRecords()->exists(),
+        'attendance_count' => $session->attendanceRecords()->count(),
+        'created_at' => $session->created_at,
+        'updated_at' => $session->updated_at,
+    ];
+}
+
+// Add this helper if not already present
+private function buildCourseLabel($course)
+{
+    if (!$course) {
+        return 'N/A';
+    }
+
+    $parts = [];
+
+    if ($course->majorSubject && $course->majorSubject->subject) {
+        $parts[] = $course->majorSubject->subject->subject_name;
+    }
+
+    if ($course->classGroup && $course->classGroup->class_name) {
+        $parts[] = $course->classGroup->class_name;
+    }
+
+    if ($course->academic_year) {
+        $parts[] = $course->academic_year;
+    }
+    if ($course->semester) {
+        $parts[] = 'Sem ' . $course->semester;
+    }
+
+    return !empty($parts) ? implode(' — ', $parts) : 'Course #' . $course->id;
+}
     /**
      * GET /api/admin/class-sessions/{id}
      * Get single class session with attendance
@@ -628,70 +702,6 @@ class AdminClassSessionController extends Controller
         return [
             'generated' => $generated,
             'skipped' => $skipped,
-        ];
-    }
-
-    /**
-     * Build course label from course data
-     */
-    private function buildCourseLabel($course)
-    {
-        if (!$course) {
-            return 'N/A';
-        }
-
-        $parts = [];
-
-        if ($course->majorSubject && $course->majorSubject->subject) {
-            $parts[] = $course->majorSubject->subject->subject_name;
-        }
-
-        if ($course->classGroup && $course->classGroup->class_name) {
-            $parts[] = $course->classGroup->class_name;
-        }
-
-        if ($course->academic_year) {
-            $parts[] = $course->academic_year;
-        }
-
-        if ($course->semester) {
-            $parts[] = 'Sem ' . $course->semester;
-        }
-
-        return !empty($parts) ? implode(' — ', $parts) : 'Course #' . $course->id;
-    }
-
-    /**
-     * Format session response
-     */
-    private function formatSessionResponse($session)
-    {
-        $course = $session->course;
-
-        return [
-            'id' => $session->id,
-            'course_id' => $session->course_id,
-            'course_label' => $this->buildCourseLabel($course),
-            'instructor' => $course->teacher?->name ??
-                           $course->teacher?->full_name ??
-                           $course->instructor ??
-                           'N/A',
-            'shift' => $course->classGroup?->shift ?? null,
-            'class_name' => $course->classGroup?->class_name ?? null,
-            'session_date' => $session->session_date ? $session->session_date->format('Y-m-d') : null,
-            'day_of_week' => $session->session_date ? $session->session_date->format('l') : null,
-            'start_time' => substr((string) $session->start_time, 0, 5),
-            'end_time' => substr((string) $session->end_time, 0, 5),
-
-            // Room fields (support both legacy + FK)
-            'room' => $session->room,
-            'room_id' => $session->room_id,
-
-            'session_type' => $session->session_type,
-            'has_attendance' => $session->attendanceRecords()->exists(),
-            'attendance_count' => $session->attendanceRecords()->count(),
-            'created_at' => $session->created_at,
-            'updated_at' => $session->updated_at,
         ];
     }
 }
