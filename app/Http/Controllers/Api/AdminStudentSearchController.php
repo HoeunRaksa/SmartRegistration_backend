@@ -12,10 +12,13 @@ class AdminStudentSearchController extends Controller
     public function search(Request $request)
     {
         try {
+            // Get filter parameters
             $departmentId = $request->query('department_id');
             $majorId      = $request->query('major_id');
             $academicYear = $request->query('academic_year');
             $semester     = $request->query('semester');
+            $classGroupId = $request->query('class_group_id');
+            $shift        = $request->query('shift');
             $q            = trim((string) $request->query('q', ''));
 
             $perPage = (int) $request->query('per_page', 30);
@@ -24,15 +27,15 @@ class AdminStudentSearchController extends Controller
 
             $studentsQ = Student::query()
                 ->select([
-                    'id',
-                    'user_id',
-                    'registration_id',
-                    'student_code',
-                    'full_name_en',
-                    'full_name_kh',
-                    'department_id',
-                    'phone_number',
-                    'address',
+                    'students.id',
+                    'students.user_id',
+                    'students.registration_id',
+                    'students.student_code',
+                    'students.full_name_en',
+                    'students.full_name_kh',
+                    'students.department_id',
+                    'students.phone_number',
+                    'students.address',
                 ])
                 ->with([
                     'user:id,email,profile_picture_path',
@@ -40,36 +43,55 @@ class AdminStudentSearchController extends Controller
                     'registration.major:id,major_name,department_id',
                 ]);
 
-            // ✅ department filter (students table)
+            // ✅ FILTER 1: Department (from students table)
             if (!empty($departmentId)) {
-                $studentsQ->where('department_id', $departmentId);
+                $studentsQ->where('students.department_id', $departmentId);
             }
 
-            // ✅ major filter (registration)
+            // ✅ FILTER 2: Major (from registration)
             if (!empty($majorId)) {
                 $studentsQ->whereHas('registration', function ($rq) use ($majorId) {
                     $rq->where('major_id', $majorId);
                 });
             }
 
-            // Note: academic_year and semester filters removed as these columns 
-            // don't exist in the registrations table
+            // ✅ FILTER 3: Academic Year + Semester + Class Group + Shift
+            // All these come from student_class_groups pivot or class_groups table
+            if (!empty($academicYear) || !empty($semester) || !empty($classGroupId) || !empty($shift)) {
+                $studentsQ->whereHas('classGroups', function ($cg) use ($academicYear, $semester, $classGroupId, $shift) {
+                    // Filter by pivot table columns (student_class_groups)
+                    if (!empty($academicYear)) {
+                        $cg->wherePivot('academic_year', $academicYear);
+                    }
+                    if (!empty($semester)) {
+                        $cg->wherePivot('semester', (int)$semester);
+                    }
 
-            // ✅ search
+                    // Filter by class_groups table columns
+                    if (!empty($classGroupId)) {
+                        $cg->where('class_groups.id', $classGroupId);
+                    }
+                    if (!empty($shift)) {
+                        $cg->where('class_groups.shift', $shift);
+                    }
+                });
+            }
+
+            // ✅ SEARCH: Student code, name, phone, address, email
             if ($q !== '') {
                 $studentsQ->where(function ($root) use ($q) {
-                    $root->where('student_code', 'like', "%{$q}%")
-                        ->orWhere('full_name_en', 'like', "%{$q}%")
-                        ->orWhere('full_name_kh', 'like', "%{$q}%")
-                        ->orWhere('phone_number', 'like', "%{$q}%")
-                        ->orWhere('address', 'like', "%{$q}%")
+                    $root->where('students.student_code', 'like', "%{$q}%")
+                        ->orWhere('students.full_name_en', 'like', "%{$q}%")
+                        ->orWhere('students.full_name_kh', 'like', "%{$q}%")
+                        ->orWhere('students.phone_number', 'like', "%{$q}%")
+                        ->orWhere('students.address', 'like', "%{$q}%")
                         ->orWhereHas('user', function ($uq) use ($q) {
                             $uq->where('email', 'like', "%{$q}%");
                         });
                 });
             }
 
-            $paginator = $studentsQ->orderByDesc('id')->paginate($perPage);
+            $paginator = $studentsQ->orderByDesc('students.id')->paginate($perPage);
 
             $data = collect($paginator->items())->map(function ($s) {
                 $profileUrl = null;
