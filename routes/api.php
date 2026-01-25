@@ -33,7 +33,6 @@ use App\Http\Controllers\Api\AdminScheduleController;
 use App\Http\Controllers\Api\ClassGroupController;
 use App\Http\Controllers\Api\MajorCapacityController;
 use App\Http\Controllers\Api\MajorQuotaController;
-
 use App\Http\Controllers\Api\TeacherController;
 
 use App\Http\Controllers\Api\StudentClassGroupController;

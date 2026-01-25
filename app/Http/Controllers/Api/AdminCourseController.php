@@ -3,13 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Course;
 use Illuminate\Http\Request;
+use App\Models\Course;
 use Illuminate\Support\Facades\Log;
-
 class AdminCourseController extends Controller
 {
-    public function options(Request $request)
+     public function options(Request $request)
     {
         try {
             $courses = Course::with([
