@@ -5,13 +5,25 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CourseEnrollment;
 use App\Models\Course;
-use App\Models\Student;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class AdminEnrollmentController extends Controller
 {
- public function index(Request $request)
+    /**
+     * GET /api/admin/enrollments
+     * Query params (all optional):
+     * - department_id
+     * - major_id
+     * - course_id
+     * - status (enrolled|completed|dropped)
+     * - academic_year (ex: 2025-2026)
+     * - semester (1|2|3)
+     * - q (search: student code/name, course fields)
+     * - per_page (default 20)
+     */
+    public function index(Request $request)
     {
         try {
             $departmentId = $request->query('department_id');
@@ -22,15 +34,16 @@ class AdminEnrollmentController extends Controller
             $semester     = $request->query('semester');
             $q            = trim((string) $request->query('q', ''));
 
+            $perPage = (int) $request->query('per_page', 20);
+            if ($perPage <= 0) $perPage = 20;
+            if ($perPage > 200) $perPage = 200;
+
             $enrollmentsQ = CourseEnrollment::query()
                 ->with([
-                    // ✅ include user profile_picture_path because StudentController uses it
                     'student:id,user_id,registration_id,student_code,full_name_en,full_name_kh,department_id,phone_number,address',
                     'student.user:id,email,profile_picture_path',
-
                     'student.registration:id,major_id,department_id',
                     'student.registration.major:id,major_name,department_id',
-
                     'course' => function ($cq) {
                         $cq->with([
                             'classGroup:id,class_name',
@@ -104,76 +117,86 @@ class AdminEnrollmentController extends Controller
                 });
             }
 
-            $enrollments = $enrollmentsQ
+            // ✅ paginate to avoid loading everything
+            $paginator = $enrollmentsQ
                 ->orderByDesc('id')
-                ->get()
-                ->map(function ($e) {
-                    $student = $e->student;
-                    $course  = $e->course;
+                ->paginate($perPage);
 
-                    $studentName = $student?->full_name_en ?: ($student?->full_name_kh ?: null);
+            $data = collect($paginator->items())->map(function ($e) {
+                $student = $e->student;
+                $course  = $e->course;
 
-                    // ✅ EXACT SAME SOURCE AS StudentController:
-                    // url('uploads/profiles/' . basename($student->user->profile_picture_path))
-                    $profileUrl = null;
-                    if ($student?->user && $student->user->profile_picture_path) {
-                        $profileUrl = url('uploads/profiles/' . basename($student->user->profile_picture_path));
-                    }
+                $studentName = $student?->full_name_en ?: ($student?->full_name_kh ?: null);
 
-                    $regMajorName = $student?->registration?->major?->major_name;
+                // ✅ EXACT SAME SOURCE AS StudentController:
+                // url('uploads/profiles/' . basename($student->user->profile_picture_path))
+                $profileUrl = null;
+                if ($student?->user && $student->user->profile_picture_path) {
+                    $profileUrl = url('uploads/profiles/' . basename($student->user->profile_picture_path));
+                }
 
-                    return [
-                        'id' => $e->id,
+                $regMajorName = $student?->registration?->major?->major_name;
 
-                        // ✅ keep flat fields (your UI already uses them)
-                        'student_id'   => $e->student_id,
+                return [
+                    'id' => $e->id,
+
+                    // flat fields
+                    'student_id'    => $e->student_id,
+                    'student_code'  => $student?->student_code,
+                    'student_name'  => $studentName,
+                    'department_id' => $student?->department_id,
+
+                    'email'   => $student?->user?->email,
+                    'phone'   => $student?->phone_number,
+                    'address' => $student?->address,
+                    'profile_picture_url' => $profileUrl,
+
+                    // nested student
+                    'student' => [
+                        'id' => $student?->id,
                         'student_code' => $student?->student_code,
-                        'student_name' => $studentName,
-                        'department_id'=> $student?->department_id,
-
-                        'email'   => $student?->user?->email,
-                        'phone'   => $student?->phone_number,
+                        'full_name_en' => $student?->full_name_en,
+                        'full_name_kh' => $student?->full_name_kh,
+                        'department_id' => $student?->department_id,
+                        'phone_number' => $student?->phone_number,
                         'address' => $student?->address,
                         'profile_picture_url' => $profileUrl,
-
-                        // ✅ ALSO return nested student like /students
-                        'student' => [
-                            'id' => $student?->id,
-                            'student_code' => $student?->student_code,
-                            'full_name_en' => $student?->full_name_en,
-                            'full_name_kh' => $student?->full_name_kh,
-                            'department_id' => $student?->department_id,
-                            'phone_number' => $student?->phone_number,
-                            'address' => $student?->address,
-                            'profile_picture_url' => $profileUrl,
-                            'user' => [
-                                'email' => $student?->user?->email,
-                                'profile_picture_path' => $student?->user?->profile_picture_path,
-                            ],
+                        'user' => [
+                            'email' => $student?->user?->email,
+                            'profile_picture_path' => $student?->user?->profile_picture_path,
                         ],
+                    ],
 
-                        'course_id'     => $e->course_id,
-                        'course_name'   => $course?->display_name,
-                        'academic_year' => $course?->academic_year,
-                        'semester'      => $course?->semester,
+                    'course_id'     => $e->course_id,
+                    'course_name'   => $course?->display_name,
+                    'academic_year' => $course?->academic_year,
+                    'semester'      => $course?->semester,
 
-                        'teacher_name' => $course?->teacher?->full_name,
-                        'class_name'   => $course?->classGroup?->class_name,
-                        'subject_name' => $course?->majorSubject?->subject?->subject_name,
+                    'teacher_name' => $course?->teacher?->full_name,
+                    'class_name'   => $course?->classGroup?->class_name,
+                    'subject_name' => $course?->majorSubject?->subject?->subject_name,
 
-                        'major_name' => $regMajorName,
+                    'major_name' => $regMajorName,
 
-                        'status'      => $e->status,
-                        'progress'    => $e->progress,
-                        'enrolled_at' => $e->enrolled_at,
-                        'dropped_at'  => $e->dropped_at,
+                    'status'      => $e->status,
+                    'progress'    => $e->progress,
+                    'enrolled_at' => $e->enrolled_at,
+                    'dropped_at'  => $e->dropped_at,
 
-                        'created_at' => $e->created_at,
-                        'updated_at' => $e->updated_at,
-                    ];
-                });
+                    'created_at' => $e->created_at,
+                    'updated_at' => $e->updated_at,
+                ];
+            });
 
-            return response()->json(['data' => $enrollments], 200);
+            return response()->json([
+                'data' => $data,
+                'meta' => [
+                    'current_page' => $paginator->currentPage(),
+                    'per_page'     => $paginator->perPage(),
+                    'total'        => $paginator->total(),
+                    'last_page'    => $paginator->lastPage(),
+                ],
+            ], 200);
 
         } catch (\Throwable $e) {
             Log::error('AdminEnrollmentController@index error', [
@@ -188,9 +211,6 @@ class AdminEnrollmentController extends Controller
         }
     }
 
-
-
-
     /**
      * POST /api/admin/enrollments
      * Manual enroll OR re-enroll (next year, repeat class)
@@ -198,27 +218,20 @@ class AdminEnrollmentController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'student_id' => 'required|exists:students,id',
-            'course_id'  => 'required|exists:courses,id',
-            'status'     => 'nullable|in:enrolled,completed,dropped',
+            'student_id' => ['required', 'exists:students,id'],
+            'course_id'  => ['required', 'exists:courses,id'],
+            'status'     => ['nullable', Rule::in(['enrolled', 'completed', 'dropped'])],
         ]);
 
         $status = $data['status'] ?? 'enrolled';
-
         $course = Course::findOrFail($data['course_id']);
 
-        /**
-         * IMPORTANT:
-         * Enrollment uniqueness is:
-         * student_id + course_id
-         * (course already includes academic_year + semester)
-         */
+        // Enrollment uniqueness: student_id + course_id
         $existing = CourseEnrollment::where('student_id', $data['student_id'])
             ->where('course_id', $data['course_id'])
             ->first();
 
         if ($existing) {
-            // Already enrolled in THIS course instance
             return response()->json([
                 'message' => 'Student already enrolled in this course.',
             ], 409);
@@ -246,7 +259,7 @@ class AdminEnrollmentController extends Controller
     public function updateStatus(Request $request, $id)
     {
         $data = $request->validate([
-            'status' => 'required|in:enrolled,completed,dropped',
+            'status' => ['required', Rule::in(['enrolled', 'completed', 'dropped'])],
         ]);
 
         try {
