@@ -12,11 +12,11 @@ class Student extends Model
     protected $table = 'students';
     protected $appends = ['profile_picture_url'];
 
-// App\Models\Student.php
-public function getProfilePictureUrlAttribute()
-{
-    return $this->user?->profile_picture_url;
-}
+    // App\Models\Student.php
+    public function getProfilePictureUrlAttribute()
+    {
+        return $this->user?->profile_picture_url;
+    }
 
 
 
@@ -65,7 +65,7 @@ public function getProfilePictureUrlAttribute()
         return $this->belongsTo(Department::class);
     }
 
-    // ✅ NEW: student -> class groups (history by year/semester)
+
     public function classGroups()
     {
         return $this->belongsToMany(\App\Models\ClassGroup::class, 'student_class_groups')
@@ -73,7 +73,7 @@ public function getProfilePictureUrlAttribute()
             ->withTimestamps();
     }
 
-    // ✅ OPTIONAL helper: current class group for specific period
+
     public function classGroupFor(string $academicYear, int $semester)
     {
         return $this->classGroups()
