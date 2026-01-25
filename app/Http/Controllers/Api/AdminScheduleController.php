@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use App\Models\Course;
+
 class AdminScheduleController extends Controller
 {
     public function index(Request $request)
@@ -53,10 +54,6 @@ class AdminScheduleController extends Controller
         }
     }
 
-    /**
-     * POST /api/admin/schedules
-     * Create schedule
-     */
     public function store(Request $request)
     {
         try {
@@ -71,7 +68,6 @@ class AdminScheduleController extends Controller
 
             $schedule = ClassSchedule::create($validated);
 
-            // return same shape as index (easy UI)
             $schedule->load('course');
             return response()->json([
                 'message' => 'Schedule created',
@@ -90,7 +86,6 @@ class AdminScheduleController extends Controller
                 ],
             ], 201);
         } catch (ValidationException $e) {
-            // keep Laravel validation response
             throw $e;
         } catch (\Throwable $e) {
             Log::error('AdminScheduleController@store error: ' . $e->getMessage());
@@ -98,18 +93,11 @@ class AdminScheduleController extends Controller
         }
     }
 
-    /**
-     * PUT /api/admin/schedules/{id}
-     * Update schedule
-     */
     public function update(Request $request, $id)
     {
         try {
             $schedule = ClassSchedule::findOrFail($id);
 
-            // IMPORTANT:
-            // - We only enforce after:start_time if both are present in the request
-            // - Otherwise we do manual compare using existing DB values
             $validated = $request->validate([
                 'course_id'    => 'sometimes|required|integer|exists:courses,id',
                 'day_of_week'  => 'sometimes|required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
@@ -169,10 +157,6 @@ class AdminScheduleController extends Controller
         }
     }
 
-    /**
-     * DELETE /api/admin/schedules/{id}
-     * Delete schedule
-     */
     public function destroy($id)
     {
         try {
