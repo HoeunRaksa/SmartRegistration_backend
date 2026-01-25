@@ -681,8 +681,6 @@ public function index(Request $request)
 }
 
 
-
-
     public function payLater($id)
     {
         $reg = DB::table('registrations')->where('id', $id)->first();
