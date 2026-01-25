@@ -36,7 +36,7 @@ class AdminStudentSearchController extends Controller
                 ])
                 ->with([
                     'user:id,email,profile_picture_path',
-                    'registration:id,major_id,department_id',
+                    'registration:id,student_id,major_id,department_id,academic_year,semester',
                     'registration.major:id,major_name,department_id',
                 ]);
 
@@ -52,17 +52,15 @@ class AdminStudentSearchController extends Controller
                 });
             }
 
-            // ✅ FIXED: academic_year + semester filter (pivot student_class_groups)
-            // student_class_groups columns: student_id, class_group_id, academic_year, semester
-            // Use whereRaw to directly query the pivot table columns
+            // ✅ FIXED: academic_year + semester filter from REGISTRATIONS table
+            // registrations columns: id, student_id, major_id, department_id, academic_year, semester
             if (!empty($academicYear) || !empty($semester)) {
-                $studentsQ->whereHas('classGroups', function ($cg) use ($academicYear, $semester) {
-                    // Query the pivot table columns directly using the table name
+                $studentsQ->whereHas('registration', function ($rq) use ($academicYear, $semester) {
                     if (!empty($academicYear)) {
-                        $cg->where('student_class_groups.academic_year', $academicYear);
+                        $rq->where('academic_year', $academicYear);
                     }
                     if (!empty($semester)) {
-                        $cg->where('student_class_groups.semester', (int)$semester);
+                        $rq->where('semester', (int)$semester);
                     }
                 });
             }
@@ -104,6 +102,8 @@ class AdminStudentSearchController extends Controller
                     'registration' => [
                         'major_id' => $s->registration?->major_id,
                         'department_id' => $s->registration?->department_id,
+                        'academic_year' => $s->registration?->academic_year,
+                        'semester' => $s->registration?->semester,
                         'major' => [
                             'major_name' => $s->registration?->major?->major_name,
                         ],
