@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\BuildingController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\StudentClassGroupController;
 
+use App\Http\Controllers\Api\AdminEnrollmentLookupController;
 use App\Http\Controllers\Api\ChatController;
 
 use Illuminate\Support\Facades\Broadcast;
@@ -238,9 +239,11 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
       // Bulk operations
         Route::post('/class-sessions/generate', [AdminClassSessionController::class, 'generate']);
         Route::post('/class-sessions/bulk-delete', [AdminClassSessionController::class, 'bulkDelete']);
-
-         Route::get('/courses/options', [AdminCourseController::class, 'options']);
+        Route::get('/courses/options', [AdminCourseController::class, 'options']);
         
+        Route::get('/admin/enrollment-lookup/class-groups', [AdminEnrollmentLookupController::class, 'classGroups']);
+        Route::get('/admin/enrollment-lookup/courses', [AdminEnrollmentLookupController::class, 'courses']);
+        Route::get('/admin/enrollment-lookup/students', [AdminEnrollmentLookupController::class, 'students']);
 
        
         Route::match(['post', 'put'], '/registrations/{id}/mark-paid-cash', [RegistrationController::class, 'markPaidCash']);

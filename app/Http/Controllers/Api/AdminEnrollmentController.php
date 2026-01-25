@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CourseEnrollment;
 use App\Models\Course;
+use App\Models\StudentClassGroup;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -12,16 +13,35 @@ use Illuminate\Validation\Rule;
 
 class AdminEnrollmentController extends Controller
 {
+    /**
+     * GET /api/admin/enrollments
+     * Query params (optional):
+     * - department_id
+     * - major_id
+     * - class_group_id            ✅ filter students by pivot student_class_groups
+     * - scg_academic_year         ✅ required when class_group_id provided
+     * - scg_semester              ✅ required when class_group_id provided
+     * - course_id
+     * - status (enrolled|completed|dropped)
+     * - academic_year (course academic_year)
+     * - semester     (course semester)
+     * - q (search student code/name/email/phone/address + major/subject/class/teacher)
+     * - per_page (max 200)
+     */
     public function index(Request $request)
     {
         try {
-            $departmentId = $request->query('department_id');
-            $majorId      = $request->query('major_id');
-            $courseId     = $request->query('course_id');
-            $status       = $request->query('status');
-            $academicYear = $request->query('academic_year');
-            $semester     = $request->query('semester');
-            $q            = trim((string) $request->query('q', ''));
+            $departmentId   = $request->query('department_id');
+            $majorId        = $request->query('major_id');
+            $classGroupId   = $request->query('class_group_id');     // ✅ NEW
+            $scgYear        = $request->query('scg_academic_year');  // ✅ NEW
+            $scgSemester    = $request->query('scg_semester');       // ✅ NEW
+
+            $courseId       = $request->query('course_id');
+            $status         = $request->query('status');
+            $academicYear   = $request->query('academic_year');
+            $semester       = $request->query('semester');
+            $q              = trim((string) $request->query('q', ''));
 
             $perPage = (int) $request->query('per_page', 20);
             if ($perPage <= 0) $perPage = 20;
@@ -55,6 +75,23 @@ class AdminEnrollmentController extends Controller
                 $enrollmentsQ->whereHas('student.registration', function ($rq) use ($majorId) {
                     $rq->where('major_id', $majorId);
                 });
+            }
+
+            // ✅ NEW: filter enrollments by "student is in class_group for (year, semester)" from pivot student_class_groups
+            if (!empty($classGroupId) || !empty($scgYear) || !empty($scgSemester)) {
+                if (empty($classGroupId) || empty($scgYear) || empty($scgSemester)) {
+                    return response()->json([
+                        'message' => 'class_group_id, scg_academic_year, scg_semester are required together.',
+                    ], 422);
+                }
+
+                $studentIdsQ = StudentClassGroup::query()
+                    ->where('class_group_id', $classGroupId)
+                    ->where('academic_year', $scgYear)
+                    ->where('semester', (int) $scgSemester)
+                    ->select('student_id');
+
+                $enrollmentsQ->whereIn('student_id', $studentIdsQ);
             }
 
             if (!empty($courseId)) {
@@ -114,6 +151,7 @@ class AdminEnrollmentController extends Controller
 
                 $studentName = $student?->full_name_en ?: ($student?->full_name_kh ?: null);
 
+                // ✅ SAME profile url logic
                 $profileUrl = null;
                 if ($student?->user && $student->user->profile_picture_path) {
                     $profileUrl = url('uploads/profiles/' . basename($student->user->profile_picture_path));
@@ -179,7 +217,6 @@ class AdminEnrollmentController extends Controller
                     'last_page'    => $paginator->lastPage(),
                 ],
             ], 200);
-
         } catch (\Throwable $e) {
             Log::error('AdminEnrollmentController@index error', [
                 'message' => $e->getMessage(),
@@ -285,7 +322,6 @@ class AdminEnrollmentController extends Controller
                     'skipped' => $skipped,
                 ],
             ], 201);
-
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('AdminEnrollmentController@store error', [
@@ -299,6 +335,9 @@ class AdminEnrollmentController extends Controller
         }
     }
 
+    /**
+     * PUT /api/admin/enrollments/{id}/status
+     */
     public function updateStatus(Request $request, $id)
     {
         $data = $request->validate([
@@ -336,6 +375,9 @@ class AdminEnrollmentController extends Controller
         }
     }
 
+    /**
+     * DELETE /api/admin/enrollments/{id}
+     */
     public function destroy($id)
     {
         try {
