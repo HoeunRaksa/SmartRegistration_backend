@@ -15,7 +15,7 @@ use App\Http\Controllers\CourseController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\RegistrationReportController;
-
+use App\Http\Controllers\Api\AdminClassSessionController;
 use App\Http\Controllers\Api\StudentCourseController;
 use App\Http\Controllers\Api\StudentScheduleController;
 use App\Http\Controllers\Api\StudentGradeController;
@@ -199,12 +199,30 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::put('/attendance/{id}', [AdminAttendanceController::class, 'updateStatus']);
         Route::post('/class-sessions', [AdminAttendanceController::class, 'createSession']);
 
-        // Schedules
+         // Class Schedules (your existing routes)
         Route::get('/schedules', [AdminScheduleController::class, 'index']);
-        Route::get('/courses/options', [AdminCourseController::class, 'options']);
         Route::post('/schedules', [AdminScheduleController::class, 'store']);
         Route::put('/schedules/{id}', [AdminScheduleController::class, 'update']);
         Route::delete('/schedules/{id}', [AdminScheduleController::class, 'destroy']);
+        
+
+        Route::get('/class-sessions', [AdminClassSessionController::class, 'index']);
+        Route::get('/class-sessions/upcoming', [AdminClassSessionController::class, 'upcoming']);
+        Route::get('/class-sessions/by-date/{date}', [AdminClassSessionController::class, 'byDate']);
+        Route::get('/class-sessions/by-course/{courseId}', [AdminClassSessionController::class, 'byCourse']);
+        Route::get('/class-sessions/{id}', [AdminClassSessionController::class, 'show']);
+        Route::post('/class-sessions', [AdminClassSessionController::class, 'store']);
+        Route::put('/class-sessions/{id}', [AdminClassSessionController::class, 'update']);
+        Route::delete('/class-sessions/{id}', [AdminClassSessionController::class, 'destroy']);
+
+
+      // Bulk operations
+        Route::post('/class-sessions/generate', [AdminClassSessionController::class, 'generate']);
+        Route::post('/class-sessions/bulk-delete', [AdminClassSessionController::class, 'bulkDelete']);
+
+         Route::get('/courses/options', [AdminCourseController::class, 'options']);
+        
+
        
         Route::match(['post', 'put'], '/registrations/{id}/mark-paid-cash', [RegistrationController::class, 'markPaidCash']);
     });
