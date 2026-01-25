@@ -37,7 +37,7 @@ use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\BuildingController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\StudentClassGroupController;
-
+use App\Http\Controllers\Api\AdminStudentSearchController;
 use App\Http\Controllers\Api\AdminEnrollmentLookupController;
 use App\Http\Controllers\Api\ChatController;
 
@@ -241,10 +241,10 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
         Route::post('/class-sessions/bulk-delete', [AdminClassSessionController::class, 'bulkDelete']);
         Route::get('/courses/options', [AdminCourseController::class, 'options']);
         
-        Route::get('/admin/enrollment-lookup/class-groups', [AdminEnrollmentLookupController::class, 'classGroups']);
-        Route::get('/admin/enrollment-lookup/courses', [AdminEnrollmentLookupController::class, 'courses']);
-        Route::get('/admin/enrollment-lookup/students', [AdminEnrollmentLookupController::class, 'students']);
-
+        Route::get('/enrollment-lookup/class-groups', [AdminEnrollmentLookupController::class, 'classGroups']);
+        Route::get('/enrollment-lookup/courses', [AdminEnrollmentLookupController::class, 'courses']);
+        Route::get('/enrollment-lookup/students', [AdminEnrollmentLookupController::class, 'students']);
+        Route::get('/students/search', [AdminStudentSearchController::class, 'search']);
        
         Route::match(['post', 'put'], '/registrations/{id}/mark-paid-cash', [RegistrationController::class, 'markPaidCash']);
     });
