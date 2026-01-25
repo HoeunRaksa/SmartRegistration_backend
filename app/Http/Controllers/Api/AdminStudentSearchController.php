@@ -36,7 +36,7 @@ class AdminStudentSearchController extends Controller
                 ])
                 ->with([
                     'user:id,email,profile_picture_path',
-                    'registration:id,student_id,major_id,department_id,academic_year,semester',
+                    'registration:id,major_id,department_id,academic_year,semester',
                     'registration.major:id,major_name,department_id',
                 ]);
 
