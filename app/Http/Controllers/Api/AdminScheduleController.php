@@ -7,13 +7,9 @@ use App\Models\ClassSchedule;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
-
+use App\Models\Course;
 class AdminScheduleController extends Controller
 {
-    /**
-     * GET /api/admin/schedules
-     * List all schedules (admin/staff)
-     */
     public function index(Request $request)
     {
         try {

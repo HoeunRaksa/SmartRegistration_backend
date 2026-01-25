@@ -31,7 +31,7 @@ use App\Http\Controllers\Api\AdminAssignmentController;
 use App\Http\Controllers\Api\AdminAttendanceController;
 use App\Http\Controllers\Api\AdminScheduleController;
 use App\Http\Controllers\Api\ClassGroupController;
-
+use App\Http\Controllers\Api\AdminCourseController;
 use App\Http\Controllers\Api\MajorCapacityController;
 use App\Http\Controllers\Api\MajorQuotaController;
 
@@ -203,10 +203,11 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 
         // Schedules
         Route::get('/schedules', [AdminScheduleController::class, 'index']);
+        Route::get('/courses/options', [AdminCourseController::class, 'options']);
         Route::post('/schedules', [AdminScheduleController::class, 'store']);
         Route::put('/schedules/{id}', [AdminScheduleController::class, 'update']);
         Route::delete('/schedules/{id}', [AdminScheduleController::class, 'destroy']);
-
+       
         Route::match(['post', 'put'], '/registrations/{id}/mark-paid-cash', [RegistrationController::class, 'markPaidCash']);
     });
 
