@@ -12,37 +12,31 @@ class AdminCourseController extends Controller
     public function options(Request $request)
     {
         try {
-            // ✅ Simpler query - only load what we need
-            $courses = Course::query()
-                ->select('id', 'course_code', 'course_name', 'class_group_id', 'academic_year', 'semester')
-                ->with('classGroup:id,shift') // Only select needed fields
+            $courses = Course::with([
+                    'majorSubject.subject',  // ✅ Load full subject (includes subject_name)
+                    'classGroup'             // ✅ Load full classGroup (includes shift)
+                ])
                 ->orderBy('academic_year', 'desc')
                 ->orderBy('semester', 'desc')
+                ->orderBy('id')
                 ->get()
                 ->map(function ($c) {
-                    // ✅ Simple display name
-                    $displayName = trim(($c->course_code ?? '') . ' - ' . ($c->course_name ?? ''));
-                    if ($displayName === '-' || $displayName === '') {
-                        $displayName = 'Course #' . $c->id;
-                    }
-
                     return [
                         'id' => $c->id,
-                        'display_name' => $displayName,
+                        'display_name' => $c->display_name,
                         'class_group_id' => $c->class_group_id,
-                        'shift' => $c->classGroup->shift ?? null,
+                        'shift' => $c->classGroup?->shift ?? null,
                     ];
                 });
 
             return response()->json(['data' => $courses], 200);
         } catch (\Throwable $e) {
             Log::error('AdminCourseController@options error: ' . $e->getMessage());
-            Log::error('Stack trace: ' . $e->getTraceAsString());
+            Log::error('Trace: ' . $e->getTraceAsString());
             
             return response()->json([
                 'message' => 'Failed to load course options',
                 'error' => config('app.debug') ? $e->getMessage() : null,
-                'trace' => config('app.debug') ? $e->getTraceAsString() : null
             ], 500);
         }
     }

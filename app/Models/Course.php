@@ -19,7 +19,6 @@ class Course extends Model
         'class_group_id',
     ];
 
-    // ✅ auto include in JSON response
     protected $appends = ['display_name'];
 
     public function majorSubject()
@@ -37,18 +36,14 @@ class Course extends Model
         return $this->belongsTo(ClassGroup::class, 'class_group_id');
     }
 
-    // ✅ Course "name" computed from relations
     public function getDisplayNameAttribute(): string
     {
         $subjectName = $this->majorSubject?->subject?->subject_name ?? 'N/A Subject';
         $className   = $this->classGroup?->class_name ?? null;
-
         $year = $this->academic_year ?? null;
         $sem  = $this->semester ? 'Sem ' . $this->semester : null;
 
-        // Build like: "Database Systems — G1 — 2025-2026 — Sem 1"
         $parts = [$subjectName];
-
         if ($className) $parts[] = $className;
         if ($year) $parts[] = $year;
         if ($sem) $parts[] = $sem;
