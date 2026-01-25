@@ -14,7 +14,7 @@ class AdminScheduleController extends Controller
 {
     /**
      * GET /api/admin/schedules
-     * Get all schedules with course details
+     * Get all schedules with course details (+ room_id support)
      */
     public function index(Request $request)
     {
@@ -22,7 +22,10 @@ class AdminScheduleController extends Controller
             $schedules = ClassSchedule::with([
                     'course.majorSubject.subject',
                     'course.classGroup',
-                    'course.teacher'
+                    'course.teacher',
+                    // If you renamed the relationship to avoid collision:
+                    // 'roomRef.building',
+                    // If you did NOT rename it (not recommended), remove the legacy string "room" column or rename relation.
                 ])
                 ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
                 ->orderBy('start_time')
@@ -30,33 +33,32 @@ class AdminScheduleController extends Controller
                 ->map(function ($schedule) {
                     $course = $schedule->course;
 
-                    // Build course label
                     $courseLabel = $this->buildCourseLabel($course);
 
-                    // Get instructor name
-                    $instructor = $course->teacher?->name ?? 
-                                 $course->teacher?->full_name ?? 
-                                 $course->instructor ?? 
-                                 'N/A';
+                    $instructor = $course->teacher?->name ??
+                                  $course->teacher?->full_name ??
+                                  $course->instructor ??
+                                  'N/A';
 
                     return [
                         'id' => $schedule->id,
                         'course_id' => $schedule->course_id,
 
-                        // Course info
                         'course_label' => $courseLabel,
                         'instructor' => $instructor,
                         'shift' => $course->classGroup?->shift ?? null,
                         'class_name' => $course->classGroup?->class_name ?? null,
 
-                        // Schedule details
                         'day_of_week' => $schedule->day_of_week,
                         'start_time' => substr((string) $schedule->start_time, 0, 5),
                         'end_time' => substr((string) $schedule->end_time, 0, 5),
+
+                        // Room fields (support both legacy + FK)
                         'room' => $schedule->room,
+                        'room_id' => $schedule->room_id,
+
                         'session_type' => $schedule->session_type,
 
-                        // Timestamps
                         'created_at' => $schedule->created_at,
                         'updated_at' => $schedule->updated_at,
                     ];
@@ -80,27 +82,31 @@ class AdminScheduleController extends Controller
 
     /**
      * POST /api/admin/schedules
-     * Create a new schedule
+     * Create a new schedule (+ room_id support)
      */
     public function store(Request $request)
     {
         try {
-            // Validate input
             $validated = $request->validate([
                 'course_id' => 'required|integer|exists:courses,id',
                 'day_of_week' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
                 'start_time' => 'required|date_format:H:i',
                 'end_time' => 'required|date_format:H:i|after:start_time',
+
+                // Accept both for compatibility
                 'room' => 'nullable|string|max:100',
+                'room_id' => 'nullable|integer|exists:rooms,id',
+
                 'session_type' => 'nullable|string|max:50',
             ]);
 
-            // Check for conflicts
             $conflict = $this->checkScheduleConflict(
                 $validated['course_id'],
                 $validated['day_of_week'],
                 $validated['start_time'],
-                $validated['end_time']
+                $validated['end_time'],
+                null,
+                $validated['room_id'] ?? null
             );
 
             if ($conflict) {
@@ -111,14 +117,12 @@ class AdminScheduleController extends Controller
                 ], 422);
             }
 
-            // Create schedule
             DB::beginTransaction();
-            
+
             $schedule = ClassSchedule::create($validated);
-            
+
             DB::commit();
 
-            // Load relationships
             $schedule->load([
                 'course.majorSubject.subject',
                 'course.classGroup',
@@ -151,26 +155,28 @@ class AdminScheduleController extends Controller
 
     /**
      * PUT /api/admin/schedules/{id}
-     * Update an existing schedule
+     * Update an existing schedule (+ room_id support)
      */
     public function update(Request $request, $id)
     {
         try {
             $schedule = ClassSchedule::findOrFail($id);
 
-            // Validate input
             $validated = $request->validate([
                 'course_id' => 'sometimes|required|integer|exists:courses,id',
                 'day_of_week' => 'sometimes|required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
                 'start_time' => 'sometimes|required|date_format:H:i',
                 'end_time' => 'sometimes|required|date_format:H:i',
+
+                // Accept both for compatibility
                 'room' => 'nullable|string|max:100',
+                'room_id' => 'nullable|integer|exists:rooms,id',
+
                 'session_type' => 'nullable|string|max:50',
             ]);
 
-            // Validate time order
             $startTime = $validated['start_time'] ?? substr((string) $schedule->start_time, 0, 5);
-            $endTime = $validated['end_time'] ?? substr((string) $schedule->end_time, 0, 5);
+            $endTime   = $validated['end_time'] ?? substr((string) $schedule->end_time, 0, 5);
 
             if ($endTime <= $startTime) {
                 return response()->json([
@@ -179,13 +185,17 @@ class AdminScheduleController extends Controller
                 ], 422);
             }
 
-            // Check for conflicts (exclude current schedule)
+            $courseId   = $validated['course_id'] ?? $schedule->course_id;
+            $dayOfWeek  = $validated['day_of_week'] ?? $schedule->day_of_week;
+            $roomId     = array_key_exists('room_id', $validated) ? $validated['room_id'] : $schedule->room_id;
+
             $conflict = $this->checkScheduleConflict(
-                $validated['course_id'] ?? $schedule->course_id,
-                $validated['day_of_week'] ?? $schedule->day_of_week,
+                $courseId,
+                $dayOfWeek,
                 $startTime,
                 $endTime,
-                $id // Exclude current schedule
+                $id,
+                $roomId
             );
 
             if ($conflict) {
@@ -196,14 +206,12 @@ class AdminScheduleController extends Controller
                 ], 422);
             }
 
-            // Update schedule
             DB::beginTransaction();
-            
+
             $schedule->update($validated);
-            
+
             DB::commit();
 
-            // Reload with relationships
             $schedule = $schedule->fresh([
                 'course.majorSubject.subject',
                 'course.classGroup',
@@ -244,9 +252,9 @@ class AdminScheduleController extends Controller
             $schedule = ClassSchedule::findOrFail($id);
 
             DB::beginTransaction();
-            
+
             $schedule->delete();
-            
+
             DB::commit();
 
             return response()->json([
@@ -267,7 +275,7 @@ class AdminScheduleController extends Controller
 
     /**
      * GET /api/admin/schedules/conflicts
-     * Check for schedule conflicts for a course
+     * Check for schedule conflicts for a course (+ optional room_id)
      */
     public function checkConflicts(Request $request)
     {
@@ -278,6 +286,7 @@ class AdminScheduleController extends Controller
                 'start_time' => 'required|date_format:H:i',
                 'end_time' => 'required|date_format:H:i',
                 'exclude_id' => 'nullable|integer',
+                'room_id' => 'nullable|integer|exists:rooms,id',
             ]);
 
             $conflict = $this->checkScheduleConflict(
@@ -285,7 +294,8 @@ class AdminScheduleController extends Controller
                 $validated['day_of_week'],
                 $validated['start_time'],
                 $validated['end_time'],
-                $validated['exclude_id'] ?? null
+                $validated['exclude_id'] ?? null,
+                $validated['room_id'] ?? null
             );
 
             return response()->json([
@@ -312,7 +322,7 @@ class AdminScheduleController extends Controller
     {
         try {
             $validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-            
+
             if (!in_array($day, $validDays)) {
                 return response()->json([
                     'success' => false,
@@ -388,27 +398,29 @@ class AdminScheduleController extends Controller
 
     /**
      * Check for schedule conflicts
+     *
+     * Current enforced conflict rule (same as your original):
+     * - conflict if overlapping time on same day for the same class_group_id
+     *
+     * Optional additional rule (enabled here only if $roomId is provided):
+     * - conflict if overlapping time on same day for the same room_id
      */
-    private function checkScheduleConflict($courseId, $dayOfWeek, $startTime, $endTime, $excludeId = null)
+    private function checkScheduleConflict($courseId, $dayOfWeek, $startTime, $endTime, $excludeId = null, $roomId = null)
     {
-        // Get the course to check its class group
         $course = Course::with('classGroup')->find($courseId);
-        
+
         if (!$course || !$course->classGroup) {
             return null;
         }
 
-        // Find overlapping schedules for the same class group
-        $query = ClassSchedule::whereHas('course', function($q) use ($course) {
+        // (A) Conflict within same class group (original behavior)
+        $query = ClassSchedule::whereHas('course', function ($q) use ($course) {
                 $q->where('class_group_id', $course->class_group_id);
             })
             ->where('day_of_week', $dayOfWeek)
-            ->where(function($q) use ($startTime, $endTime) {
-                // Check for time overlap
-                $q->where(function($query) use ($startTime, $endTime) {
-                    $query->where('start_time', '<', $endTime)
-                          ->where('end_time', '>', $startTime);
-                });
+            ->where(function ($q) use ($startTime, $endTime) {
+                $q->where('start_time', '<', $endTime)
+                  ->where('end_time', '>', $startTime);
             });
 
         if ($excludeId) {
@@ -419,12 +431,42 @@ class AdminScheduleController extends Controller
 
         if ($conflict) {
             return [
+                'type' => 'class_group',
                 'schedule_id' => $conflict->id,
                 'course' => $this->buildCourseLabel($conflict->course),
                 'day' => $conflict->day_of_week,
-                'time' => substr($conflict->start_time, 0, 5) . ' - ' . substr($conflict->end_time, 0, 5),
+                'time' => substr((string) $conflict->start_time, 0, 5) . ' - ' . substr((string) $conflict->end_time, 0, 5),
                 'room' => $conflict->room,
+                'room_id' => $conflict->room_id,
             ];
+        }
+
+        // (B) Optional: room conflict (only when room_id provided)
+        if (!is_null($roomId)) {
+            $roomQuery = ClassSchedule::where('room_id', $roomId)
+                ->where('day_of_week', $dayOfWeek)
+                ->where(function ($q) use ($startTime, $endTime) {
+                    $q->where('start_time', '<', $endTime)
+                      ->where('end_time', '>', $startTime);
+                });
+
+            if ($excludeId) {
+                $roomQuery->where('id', '!=', $excludeId);
+            }
+
+            $roomConflict = $roomQuery->with('course.majorSubject.subject')->first();
+
+            if ($roomConflict) {
+                return [
+                    'type' => 'room',
+                    'schedule_id' => $roomConflict->id,
+                    'course' => $this->buildCourseLabel($roomConflict->course),
+                    'day' => $roomConflict->day_of_week,
+                    'time' => substr((string) $roomConflict->start_time, 0, 5) . ' - ' . substr((string) $roomConflict->end_time, 0, 5),
+                    'room' => $roomConflict->room,
+                    'room_id' => $roomConflict->room_id,
+                ];
+            }
         }
 
         return null;
@@ -441,20 +483,18 @@ class AdminScheduleController extends Controller
 
         $parts = [];
 
-        // Subject name
         if ($course->majorSubject && $course->majorSubject->subject) {
             $parts[] = $course->majorSubject->subject->subject_name;
         }
 
-        // Class group
         if ($course->classGroup && $course->classGroup->class_name) {
             $parts[] = $course->classGroup->class_name;
         }
 
-        // Academic info
         if ($course->academic_year) {
             $parts[] = $course->academic_year;
         }
+
         if ($course->semester) {
             $parts[] = 'Sem ' . $course->semester;
         }
@@ -473,16 +513,20 @@ class AdminScheduleController extends Controller
             'id' => $schedule->id,
             'course_id' => $schedule->course_id,
             'course_label' => $this->buildCourseLabel($course),
-            'instructor' => $course->teacher?->name ?? 
-                           $course->teacher?->full_name ?? 
-                           $course->instructor ?? 
+            'instructor' => $course->teacher?->name ??
+                           $course->teacher?->full_name ??
+                           $course->instructor ??
                            'N/A',
             'shift' => $course->classGroup?->shift ?? null,
             'class_name' => $course->classGroup?->class_name ?? null,
             'day_of_week' => $schedule->day_of_week,
             'start_time' => substr((string) $schedule->start_time, 0, 5),
             'end_time' => substr((string) $schedule->end_time, 0, 5),
+
+            // Room fields (support both legacy + FK)
             'room' => $schedule->room,
+            'room_id' => $schedule->room_id,
+
             'session_type' => $schedule->session_type,
             'created_at' => $schedule->created_at,
             'updated_at' => $schedule->updated_at,

@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ClassSession;
 use App\Models\ClassSchedule;
-use App\Models\Course;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +20,11 @@ class AdminClassSessionController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = ClassSession::with(['course.majorSubject.subject', 'course.classGroup', 'course.teacher']);
+            $query = ClassSession::with([
+                'course.majorSubject.subject',
+                'course.classGroup',
+                'course.teacher'
+            ]);
 
             // Filter by date range
             if ($request->start_date) {
@@ -41,7 +44,7 @@ class AdminClassSessionController extends Controller
                 $query->whereDate('session_date', $request->date);
             }
 
-            // Filter by day of week
+            // Filter by day of week (MySQL DAYNAME)
             if ($request->day_of_week) {
                 $query->whereRaw('DAYNAME(session_date) = ?', [$request->day_of_week]);
             }
@@ -119,17 +122,26 @@ class AdminClassSessionController extends Controller
                 'session_date' => 'required|date',
                 'start_time' => 'required|date_format:H:i',
                 'end_time' => 'required|date_format:H:i|after:start_time',
+
+                // Support both legacy room string + new room_id FK
                 'room' => 'nullable|string|max:100',
+                'room_id' => 'nullable|integer|exists:rooms,id',
+
                 'session_type' => 'nullable|string|max:50',
             ]);
 
-            // Check for duplicate
-            $exists = ClassSession::where('course_id', $validated['course_id'])
+            // Check for duplicate (stronger key: include room_id if present, else room string)
+            $dupQuery = ClassSession::where('course_id', $validated['course_id'])
                 ->where('session_date', $validated['session_date'])
-                ->where('start_time', $validated['start_time'])
-                ->exists();
+                ->where('start_time', $validated['start_time']);
 
-            if ($exists) {
+            if (!empty($validated['room_id'])) {
+                $dupQuery->where('room_id', $validated['room_id']);
+            } else {
+                $dupQuery->where('room', $validated['room'] ?? null);
+            }
+
+            if ($dupQuery->exists()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'A session already exists for this course at this date and time'
@@ -182,13 +194,16 @@ class AdminClassSessionController extends Controller
                 'session_date' => 'sometimes|required|date',
                 'start_time' => 'sometimes|required|date_format:H:i',
                 'end_time' => 'sometimes|required|date_format:H:i',
+
+                // Support both legacy room string + new room_id FK
                 'room' => 'nullable|string|max:100',
+                'room_id' => 'nullable|integer|exists:rooms,id',
+
                 'session_type' => 'nullable|string|max:50',
             ]);
 
-            // Validate time order
             $startTime = $validated['start_time'] ?? substr((string) $session->start_time, 0, 5);
-            $endTime = $validated['end_time'] ?? substr((string) $session->end_time, 0, 5);
+            $endTime   = $validated['end_time'] ?? substr((string) $session->end_time, 0, 5);
 
             if ($endTime <= $startTime) {
                 return response()->json([
@@ -242,7 +257,6 @@ class AdminClassSessionController extends Controller
         try {
             $session = ClassSession::findOrFail($id);
 
-            // Check if has attendance records
             if ($session->attendanceRecords()->exists()) {
                 return response()->json([
                     'success' => false,
@@ -283,18 +297,17 @@ class AdminClassSessionController extends Controller
                 'start_date' => 'required|date',
                 'end_date' => 'required|date|after:start_date',
                 'course_id' => 'nullable|integer|exists:courses,id',
-                'overwrite' => 'nullable|boolean', // Whether to overwrite existing sessions
+                'overwrite' => 'nullable|boolean',
             ]);
 
-            $startDate = Carbon::parse($validated['start_date']);
-            $endDate = Carbon::parse($validated['end_date']);
-            $overwrite = $validated['overwrite'] ?? false;
+            $startDate = Carbon::parse($validated['start_date'])->startOfDay();
+            $endDate   = Carbon::parse($validated['end_date'])->endOfDay();
+            $overwrite = (bool) ($validated['overwrite'] ?? false);
 
-            // Get schedules to generate from
-            $query = ClassSchedule::with('course');
+            $query = ClassSchedule::query();
 
-            if ($request->course_id) {
-                $query->where('course_id', $request->course_id);
+            if (!empty($validated['course_id'])) {
+                $query->where('course_id', $validated['course_id']);
             }
 
             $schedules = $query->get();
@@ -316,7 +329,7 @@ class AdminClassSessionController extends Controller
                 $result = $this->generateSessionsForSchedule($schedule, $startDate, $endDate, $overwrite);
                 $totalGenerated += $result['generated'];
                 $totalSkipped += $result['skipped'];
-                
+
                 $details[] = [
                     'course_id' => $schedule->course_id,
                     'course_label' => $this->buildCourseLabel($schedule->course),
@@ -372,7 +385,6 @@ class AdminClassSessionController extends Controller
 
             $sessions = ClassSession::whereIn('id', $validated['session_ids'])->get();
 
-            // Check if any have attendance
             $withAttendance = $sessions->filter(function ($session) {
                 return $session->attendanceRecords()->exists();
             });
@@ -422,15 +434,18 @@ class AdminClassSessionController extends Controller
     public function upcoming(Request $request)
     {
         try {
-            $days = $request->days ?? 7; // Default 7 days
+            $days = (int) ($request->days ?? 7);
+
+            $start = Carbon::today();
+            $end = Carbon::today()->addDays($days);
 
             $sessions = ClassSession::with([
                     'course.majorSubject.subject',
                     'course.classGroup',
                     'course.teacher'
                 ])
-                ->where('session_date', '>=', Carbon::today())
-                ->where('session_date', '<=', Carbon::today()->addDays($days))
+                ->where('session_date', '>=', $start)
+                ->where('session_date', '<=', $end)
                 ->orderBy('session_date')
                 ->orderBy('start_time')
                 ->get()
@@ -443,8 +458,8 @@ class AdminClassSessionController extends Controller
                 'data' => $sessions,
                 'total' => $sessions->count(),
                 'date_range' => [
-                    'start' => Carbon::today()->format('Y-m-d'),
-                    'end' => Carbon::today()->addDays($days)->format('Y-m-d'),
+                    'start' => $start->format('Y-m-d'),
+                    'end' => $end->format('Y-m-d'),
                 ]
             ], 200);
 
@@ -547,7 +562,6 @@ class AdminClassSessionController extends Controller
         $skipped = 0;
         $current = $startDate->copy();
 
-        // Map day names to Carbon constants
         $dayMap = [
             'Monday' => Carbon::MONDAY,
             'Tuesday' => Carbon::TUESDAY,
@@ -564,47 +578,50 @@ class AdminClassSessionController extends Controller
             return ['generated' => 0, 'skipped' => 0];
         }
 
-        // Move to first occurrence of the target day
         while ($current->dayOfWeek !== $targetDay) {
             $current->addDay();
         }
 
-        // Generate sessions for each occurrence
         while ($current->lte($endDate)) {
-            $sessionDate = $current->format('Y-m-d');
+            $sessionDate = $current->toDateString();
 
-            // Check if session already exists
-            $existing = ClassSession::where('course_id', $schedule->course_id)
+            // Stronger matching: include room_id if present, else fallback to room string
+            $existingQuery = ClassSession::where('course_id', $schedule->course_id)
                 ->where('session_date', $sessionDate)
-                ->where('start_time', $schedule->start_time)
-                ->first();
+                ->where('start_time', $schedule->start_time);
+
+            if (!is_null($schedule->room_id)) {
+                $existingQuery->where('room_id', $schedule->room_id);
+            } else {
+                $existingQuery->where('room', $schedule->room);
+            }
+
+            $existing = $existingQuery->first();
+
+            $payload = [
+                'course_id' => $schedule->course_id,
+                'session_date' => $sessionDate,
+                'start_time' => $schedule->start_time,
+                'end_time' => $schedule->end_time,
+                'session_type' => $schedule->session_type,
+
+                // Keep both for compatibility; requires columns/fillable on ClassSession
+                'room' => $schedule->room,
+                'room_id' => $schedule->room_id,
+            ];
 
             if ($existing) {
                 if ($overwrite) {
-                    // Update existing
-                    $existing->update([
-                        'end_time' => $schedule->end_time,
-                        'session_type' => $schedule->session_type,
-                        'room' => $schedule->room,
-                    ]);
+                    $existing->update($payload);
                     $generated++;
                 } else {
                     $skipped++;
                 }
             } else {
-                // Create new
-                ClassSession::create([
-                    'course_id' => $schedule->course_id,
-                    'session_date' => $sessionDate,
-                    'start_time' => $schedule->start_time,
-                    'end_time' => $schedule->end_time,
-                    'session_type' => $schedule->session_type,
-                    'room' => $schedule->room,
-                ]);
+                ClassSession::create($payload);
                 $generated++;
             }
 
-            // Move to next week
             $current->addWeek();
         }
 
@@ -625,20 +642,18 @@ class AdminClassSessionController extends Controller
 
         $parts = [];
 
-        // Subject name
         if ($course->majorSubject && $course->majorSubject->subject) {
             $parts[] = $course->majorSubject->subject->subject_name;
         }
 
-        // Class group
         if ($course->classGroup && $course->classGroup->class_name) {
             $parts[] = $course->classGroup->class_name;
         }
 
-        // Academic info
         if ($course->academic_year) {
             $parts[] = $course->academic_year;
         }
+
         if ($course->semester) {
             $parts[] = 'Sem ' . $course->semester;
         }
@@ -657,17 +672,21 @@ class AdminClassSessionController extends Controller
             'id' => $session->id,
             'course_id' => $session->course_id,
             'course_label' => $this->buildCourseLabel($course),
-            'instructor' => $course->teacher?->name ?? 
-                           $course->teacher?->full_name ?? 
-                           $course->instructor ?? 
+            'instructor' => $course->teacher?->name ??
+                           $course->teacher?->full_name ??
+                           $course->instructor ??
                            'N/A',
             'shift' => $course->classGroup?->shift ?? null,
             'class_name' => $course->classGroup?->class_name ?? null,
-            'session_date' => $session->session_date->format('Y-m-d'),
-            'day_of_week' => $session->session_date->format('l'),
+            'session_date' => $session->session_date ? $session->session_date->format('Y-m-d') : null,
+            'day_of_week' => $session->session_date ? $session->session_date->format('l') : null,
             'start_time' => substr((string) $session->start_time, 0, 5),
             'end_time' => substr((string) $session->end_time, 0, 5),
+
+            // Room fields (support both legacy + FK)
             'room' => $session->room,
+            'room_id' => $session->room_id,
+
             'session_type' => $session->session_type,
             'has_attendance' => $session->attendanceRecords()->exists(),
             'attendance_count' => $session->attendanceRecords()->count(),

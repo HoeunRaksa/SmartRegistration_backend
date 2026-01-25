@@ -15,8 +15,8 @@ class ClassSession extends Model
         'start_time',
         'end_time',
         'session_type',
-        'room',          // Keep for backward compatibility
-        'room_id',       // NEW
+        'room',      // legacy string
+        'room_id',   // FK to rooms.id
     ];
 
     protected $casts = [
@@ -33,9 +33,9 @@ class ClassSession extends Model
         return $this->hasMany(AttendanceRecord::class);
     }
 
-    // NEW
-    public function room()
+    // FIX: renamed to avoid collision
+    public function roomRef()
     {
-        return $this->belongsTo(Room::class);
+        return $this->belongsTo(Room::class, 'room_id');
     }
 }

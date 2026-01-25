@@ -14,8 +14,8 @@ class ClassSchedule extends Model
         'day_of_week',
         'start_time',
         'end_time',
-        'room',          // Keep for backward compatibility
-        'room_id',       // NEW
+        'room',        // legacy string column
+        'room_id',     // FK to rooms.id
         'session_type',
     ];
 
@@ -24,9 +24,9 @@ class ClassSchedule extends Model
         return $this->belongsTo(Course::class);
     }
 
-    // NEW
-    public function room()
+    // FIX: rename relationship to avoid collision with the `room` attribute
+    public function roomRef()
     {
-        return $this->belongsTo(Room::class);
+        return $this->belongsTo(Room::class, 'room_id');
     }
 }
