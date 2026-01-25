@@ -630,6 +630,8 @@ public function index(Request $request)
             'm.registration_fee',
             's.student_code',
             DB::raw('s.id as student_id'),
+            // ✅ Get profile picture from users table (not registrations)
+            'u.profile_picture_path as user_profile_picture_path',
 
             DB::raw('COALESCE(sap1.payment_status, "PENDING") as sem1_payment_status'),
             DB::raw('COALESCE(sap2.payment_status, "PENDING") as sem2_payment_status'),
@@ -662,9 +664,16 @@ public function index(Request $request)
             $reg->period_semester = 0;
         }
 
-        if (!empty($reg->profile_picture_path)) {
-            $reg->profile_picture_url = url($reg->profile_picture_path);
+        // ✅ FIXED: Use profile picture from users table (primary source)
+        // Fallback to registration table if users doesn't have one
+        $profilePath = $reg->user_profile_picture_path ?? $reg->profile_picture_path;
+        
+        if (!empty($profilePath)) {
+            $reg->profile_picture_url = url($profilePath);
+        } else {
+            $reg->profile_picture_url = null;
         }
+
         return $reg;
     });
 
