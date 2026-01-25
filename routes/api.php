@@ -326,12 +326,3 @@ Route::get('/test-registrations', function () {
         'data' => $data
     ]);
 });
-
-
-
-Route::get('/test-admin-course', function() {
-    return response()->json([
-        'controller_exists' => class_exists(\App\Http\Controllers\Api\AdminCourseController::class),
-        'controller_path' => (new ReflectionClass(\App\Http\Controllers\Api\AdminCourseController::class))->getFileName(),
-    ]);
-});

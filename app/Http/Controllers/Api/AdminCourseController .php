@@ -9,10 +9,6 @@ use Illuminate\Support\Facades\Log;
 
 class AdminCourseController extends Controller
 {
-    /**
-     * GET /api/admin/courses/options
-     * Return courses for dropdown (id + display_name)
-     */
     public function options(Request $request)
     {
         try {
