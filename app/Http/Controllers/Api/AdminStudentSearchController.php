@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Student;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+
 class AdminStudentSearchController extends Controller
 {
     public function search(Request $request)
@@ -51,12 +52,18 @@ class AdminStudentSearchController extends Controller
                 });
             }
 
-            // ✅ academic_year + semester filter (pivot student_class_groups)
+            // ✅ FIXED: academic_year + semester filter (pivot student_class_groups)
             // student_class_groups columns: student_id, class_group_id, academic_year, semester
+            // The issue was using ->where() instead of ->wherePivot() for pivot table columns
             if (!empty($academicYear) || !empty($semester)) {
                 $studentsQ->whereHas('classGroups', function ($cg) use ($academicYear, $semester) {
-                    if (!empty($academicYear)) $cg->where('academic_year', $academicYear);
-                    if (!empty($semester)) $cg->where('semester', (int)$semester);
+                    // Use wherePivot for columns in the pivot table (student_class_groups)
+                    if (!empty($academicYear)) {
+                        $cg->wherePivot('academic_year', $academicYear);
+                    }
+                    if (!empty($semester)) {
+                        $cg->wherePivot('semester', (int)$semester);
+                    }
                 });
             }
 
