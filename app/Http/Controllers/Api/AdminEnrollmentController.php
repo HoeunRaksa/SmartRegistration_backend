@@ -6,23 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\CourseEnrollment;
 use App\Models\Course;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class AdminEnrollmentController extends Controller
 {
-    /**
-     * GET /api/admin/enrollments
-     * Query params (all optional):
-     * - department_id
-     * - major_id
-     * - course_id
-     * - status (enrolled|completed|dropped)
-     * - academic_year (ex: 2025-2026)
-     * - semester (1|2|3)
-     * - q (search: student code/name, course fields)
-     * - per_page (default 20)
-     */
     public function index(Request $request)
     {
         try {
@@ -117,10 +106,7 @@ class AdminEnrollmentController extends Controller
                 });
             }
 
-            // ✅ paginate to avoid loading everything
-            $paginator = $enrollmentsQ
-                ->orderByDesc('id')
-                ->paginate($perPage);
+            $paginator = $enrollmentsQ->orderByDesc('id')->paginate($perPage);
 
             $data = collect($paginator->items())->map(function ($e) {
                 $student = $e->student;
@@ -128,8 +114,6 @@ class AdminEnrollmentController extends Controller
 
                 $studentName = $student?->full_name_en ?: ($student?->full_name_kh ?: null);
 
-                // ✅ EXACT SAME SOURCE AS StudentController:
-                // url('uploads/profiles/' . basename($student->user->profile_picture_path))
                 $profileUrl = null;
                 if ($student?->user && $student->user->profile_picture_path) {
                     $profileUrl = url('uploads/profiles/' . basename($student->user->profile_picture_path));
@@ -140,7 +124,6 @@ class AdminEnrollmentController extends Controller
                 return [
                     'id' => $e->id,
 
-                    // flat fields
                     'student_id'    => $e->student_id,
                     'student_code'  => $student?->student_code,
                     'student_name'  => $studentName,
@@ -151,7 +134,6 @@ class AdminEnrollmentController extends Controller
                     'address' => $student?->address,
                     'profile_picture_url' => $profileUrl,
 
-                    // nested student
                     'student' => [
                         'id' => $student?->id,
                         'student_code' => $student?->student_code,
@@ -213,49 +195,110 @@ class AdminEnrollmentController extends Controller
 
     /**
      * POST /api/admin/enrollments
-     * Manual enroll OR re-enroll (next year, repeat class)
+     * EASY (supports single or bulk):
+     * - student_id (single) OR student_ids (array)
+     * - course_id (this course already contains academic_year + semester => use next-semester course_id to enroll next semester)
      */
     public function store(Request $request)
     {
         $data = $request->validate([
-            'student_id' => ['required', 'exists:students,id'],
-            'course_id'  => ['required', 'exists:courses,id'],
-            'status'     => ['nullable', Rule::in(['enrolled', 'completed', 'dropped'])],
+            'student_id'  => ['nullable', 'exists:students,id'],
+            'student_ids' => ['nullable', 'array'],
+            'student_ids.*' => ['required_with:student_ids', 'exists:students,id'],
+
+            'course_id'   => ['required', 'exists:courses,id'],
+
+            'status'      => ['nullable', Rule::in(['enrolled', 'completed', 'dropped'])],
         ]);
 
         $status = $data['status'] ?? 'enrolled';
-        $course = Course::findOrFail($data['course_id']);
 
-        // Enrollment uniqueness: student_id + course_id
-        $existing = CourseEnrollment::where('student_id', $data['student_id'])
-            ->where('course_id', $data['course_id'])
-            ->first();
+        // course_id decides the target academic_year + semester (next semester = pass the next semester course_id)
+        $course = Course::select(['id', 'academic_year', 'semester'])->findOrFail($data['course_id']);
 
-        if ($existing) {
-            return response()->json([
-                'message' => 'Student already enrolled in this course.',
-            ], 409);
+        // normalize to array
+        $studentIds = [];
+        if (!empty($data['student_ids']) && is_array($data['student_ids'])) {
+            $studentIds = array_values(array_unique(array_map('intval', $data['student_ids'])));
+        } elseif (!empty($data['student_id'])) {
+            $studentIds = [(int) $data['student_id']];
         }
 
-        $enrollment = CourseEnrollment::create([
-            'student_id'  => $data['student_id'],
-            'course_id'   => $data['course_id'],
-            'status'      => $status,
-            'progress'    => $status === 'enrolled' ? 0 : null,
-            'enrolled_at' => $status === 'enrolled' ? now() : null,
-            'dropped_at'  => $status === 'dropped' ? now() : null,
-        ]);
+        if (count($studentIds) === 0) {
+            return response()->json([
+                'message' => 'student_id or student_ids is required.',
+            ], 422);
+        }
 
-        return response()->json([
-            'message' => 'Enrollment created',
-            'data' => $enrollment->load(['student', 'course']),
-        ], 201);
+        $created = [];
+        $skipped = [];
+
+        try {
+            DB::beginTransaction();
+
+            // pre-check duplicates for this course to avoid N queries
+            $existingIds = CourseEnrollment::query()
+                ->where('course_id', $course->id)
+                ->whereIn('student_id', $studentIds)
+                ->pluck('student_id')
+                ->map(fn ($v) => (int) $v)
+                ->all();
+
+            $existingSet = array_flip($existingIds);
+
+            foreach ($studentIds as $sid) {
+                if (isset($existingSet[$sid])) {
+                    $skipped[] = [
+                        'student_id' => $sid,
+                        'reason' => 'already_enrolled_in_this_course',
+                    ];
+                    continue;
+                }
+
+                $enrollment = CourseEnrollment::create([
+                    'student_id'  => $sid,
+                    'course_id'   => $course->id,
+                    'status'      => $status,
+                    'progress'    => $status === 'enrolled' ? 0 : null,
+                    'enrolled_at' => $status === 'enrolled' ? now() : null,
+                    'dropped_at'  => $status === 'dropped' ? now() : null,
+                ]);
+
+                $created[] = $enrollment->id;
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Enrollments processed',
+                'target' => [
+                    'course_id' => $course->id,
+                    'academic_year' => $course->academic_year,
+                    'semester' => $course->semester,
+                    'status' => $status,
+                ],
+                'result' => [
+                    'requested' => count($studentIds),
+                    'created_count' => count($created),
+                    'skipped_count' => count($skipped),
+                    'created_enrollment_ids' => $created,
+                    'skipped' => $skipped,
+                ],
+            ], 201);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('AdminEnrollmentController@store error', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json([
+                'message' => 'Failed to create enrollments',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
-    /**
-     * PUT /api/admin/enrollments/{id}/status
-     * Human decision: complete / drop / re-enroll
-     */
     public function updateStatus(Request $request, $id)
     {
         $data = $request->validate([
@@ -293,10 +336,6 @@ class AdminEnrollmentController extends Controller
         }
     }
 
-    /**
-     * DELETE /api/admin/enrollments/{id}
-     * Hard delete (admin only)
-     */
     public function destroy($id)
     {
         try {
