@@ -16,21 +16,20 @@ class AdminCourseController extends Controller
     public function options(Request $request)
     {
         try {
-            // Load relations used by Course::getDisplayNameAttribute()
-            // (majorSubject -> subject, classGroup)
             $courses = Course::query()
-                ->with([
-                    'majorSubject.subject',
-                    'classGroup',
-                ])
+                ->with(['majorSubject.subject', 'classGroup'])
                 ->orderBy('academic_year')
                 ->orderBy('semester')
                 ->orderBy('id')
                 ->get()
-                ->map(fn ($c) => [
-                    'id' => $c->id,
-                    'display_name' => $c->display_name, // ✅ computed from model
-                ]);
+                ->map(function ($c) {
+                    return [
+                        'id' => $c->id,
+                        'display_name' => $c->display_name,     // ✅ from $appends
+                        'class_group_id' => $c->class_group_id,
+                        'shift' => $c->classGroup?->shift,      // ✅ morning/afternoon/evening
+                    ];
+                });
 
             return response()->json(['data' => $courses], 200);
         } catch (\Throwable $e) {
