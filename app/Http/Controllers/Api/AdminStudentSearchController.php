@@ -59,12 +59,12 @@ class AdminStudentSearchController extends Controller
             // All these come from student_class_groups pivot or class_groups table
             if (!empty($academicYear) || !empty($semester) || !empty($classGroupId) || !empty($shift)) {
                 $studentsQ->whereHas('classGroups', function ($cg) use ($academicYear, $semester, $classGroupId, $shift) {
-                    // Filter by pivot table columns (student_class_groups)
+                    // Filter by pivot table columns using direct table reference
                     if (!empty($academicYear)) {
-                        $cg->wherePivot('academic_year', $academicYear);
+                        $cg->where('student_class_groups.academic_year', $academicYear);
                     }
                     if (!empty($semester)) {
-                        $cg->wherePivot('semester', (int)$semester);
+                        $cg->where('student_class_groups.semester', (int)$semester);
                     }
 
                     // Filter by class_groups table columns
@@ -130,7 +130,6 @@ class AdminStudentSearchController extends Controller
                     'last_page'    => $paginator->lastPage(),
                 ],
             ], 200);
-
         } catch (\Throwable $e) {
             Log::error('AdminStudentController@search error', [
                 'message' => $e->getMessage(),
