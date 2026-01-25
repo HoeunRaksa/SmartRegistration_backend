@@ -24,14 +24,13 @@ use App\Http\Controllers\Api\StudentAttendanceController;
 use App\Http\Controllers\Api\StudentMessageController;
 use App\Http\Controllers\Api\StudentCalendarController;
 use App\Http\Controllers\Api\StudentProfileController;
-
+use App\Http\Controllers\Api\AdminCourseController;
 use App\Http\Controllers\Api\AdminEnrollmentController;
 use App\Http\Controllers\Api\AdminGradeController;
 use App\Http\Controllers\Api\AdminAssignmentController;
 use App\Http\Controllers\Api\AdminAttendanceController;
 use App\Http\Controllers\Api\AdminScheduleController;
 use App\Http\Controllers\Api\ClassGroupController;
-use App\Http\Controllers\Api\AdminCourseController;
 use App\Http\Controllers\Api\MajorCapacityController;
 use App\Http\Controllers\Api\MajorQuotaController;
 
@@ -325,5 +324,14 @@ Route::get('/test-registrations', function () {
         'success' => true,
         'message' => 'Test endpoint',
         'data' => $data
+    ]);
+});
+
+
+
+Route::get('/test-admin-course', function() {
+    return response()->json([
+        'controller_exists' => class_exists(\App\Http\Controllers\Api\AdminCourseController::class),
+        'controller_path' => (new ReflectionClass(\App\Http\Controllers\Api\AdminCourseController::class))->getFileName(),
     ]);
 });

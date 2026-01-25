@@ -17,8 +17,8 @@ class AdminCourseController extends Controller
     {
         try {
             $courses = Course::with([
-                    'majorSubject.subject',  // ✅ Load full subject (includes subject_name)
-                    'classGroup'             // ✅ Load full classGroup (includes shift)
+                    'majorSubject.subject',
+                    'classGroup'
                 ])
                 ->orderBy('academic_year', 'desc')
                 ->orderBy('semester', 'desc')
