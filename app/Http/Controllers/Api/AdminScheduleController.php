@@ -16,80 +16,70 @@ class AdminScheduleController extends Controller
      * GET /api/admin/schedules
      * Get all schedules with course details (+ room_id support)
      */
-public function index(Request $request)
-{
-    try {
-        $schedules = ClassSchedule::with([
-                'course.majorSubject.subject',
-                'course.classGroup',
-                'course.teacher',
-                'room.building' // ✅ ADD THIS
-            ])
-            ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
-            ->orderBy('start_time')
-            ->get()
-            ->map(function ($schedule) {
-                $course = $schedule->course;
-                $room = $schedule->room;
-                $building = $room?->building;
+    public function index(Request $request)
+    {
+        try {
+            $schedules = ClassSchedule::with([
+                    'course.majorSubject.subject',
+                    'course.classGroup',
+                    'course.teacher',
+                    // If you renamed the relationship to avoid collision:
+                    // 'roomRef.building',
+                    // If you did NOT rename it (not recommended), remove the legacy string "room" column or rename relation.
+                ])
+                ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
+                ->orderBy('start_time')
+                ->get()
+                ->map(function ($schedule) {
+                    $course = $schedule->course;
 
-                $courseLabel = $this->buildCourseLabel($course);
-                $instructor = $course->teacher?->name ?? 
-                             $course->teacher?->full_name ?? 
-                             $course->instructor ?? 
-                             'N/A';
+                    $courseLabel = $this->buildCourseLabel($course);
 
-                // ✅ Build room display
-                $roomDisplay = null;
-                $buildingCode = null;
-                $roomNumber = null;
-                
-                if ($room) {
-                    $buildingCode = $building?->building_code;
-                    $roomNumber = $room->room_number;
-                    $roomDisplay = $buildingCode 
-                        ? "{$buildingCode}-{$roomNumber}" 
-                        : $roomNumber;
-                }
+                    $instructor = $course->teacher?->name ??
+                                  $course->teacher?->full_name ??
+                                  $course->instructor ??
+                                  'N/A';
 
-                return [
-                    'id' => $schedule->id,
-                    'course_id' => $schedule->course_id,
-                    'course_label' => $courseLabel,
-                    'instructor' => $instructor,
-                    'shift' => $course->classGroup?->shift ?? null,
-                    'class_name' => $course->classGroup?->class_name ?? null,
-                    'day_of_week' => $schedule->day_of_week,
-                    'start_time' => substr((string) $schedule->start_time, 0, 5),
-                    'end_time' => substr((string) $schedule->end_time, 0, 5),
-                    
-                    // ✅ Room info
-                    'room_id' => $schedule->room_id,
-                    'room_number' => $roomNumber,
-                    'building_code' => $buildingCode,
-                    'room_full_name' => $roomDisplay,
-                    
-                    'session_type' => $schedule->session_type,
-                    'created_at' => $schedule->created_at,
-                    'updated_at' => $schedule->updated_at,
-                ];
-            });
+                    return [
+                        'id' => $schedule->id,
+                        'course_id' => $schedule->course_id,
 
-        return response()->json([
-            'success' => true,
-            'data' => $schedules,
-            'total' => $schedules->count(),
-        ], 200);
+                        'course_label' => $courseLabel,
+                        'instructor' => $instructor,
+                        'shift' => $course->classGroup?->shift ?? null,
+                        'class_name' => $course->classGroup?->class_name ?? null,
 
-    } catch (\Throwable $e) {
-        Log::error('AdminScheduleController@index error: ' . $e->getMessage());
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to load schedules',
-            'error' => config('app.debug') ? $e->getMessage() : null
-        ], 500);
+                        'day_of_week' => $schedule->day_of_week,
+                        'start_time' => substr((string) $schedule->start_time, 0, 5),
+                        'end_time' => substr((string) $schedule->end_time, 0, 5),
+
+                        // Room fields (support both legacy + FK)
+                        'room' => $schedule->room,
+                        'room_id' => $schedule->room_id,
+
+                        'session_type' => $schedule->session_type,
+
+                        'created_at' => $schedule->created_at,
+                        'updated_at' => $schedule->updated_at,
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'data' => $schedules,
+                'total' => $schedules->count(),
+            ], 200);
+
+        } catch (\Throwable $e) {
+            Log::error('AdminScheduleController@index error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load schedules',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
     }
-}
+
     /**
      * POST /api/admin/schedules
      * Create a new schedule (+ room_id support)
