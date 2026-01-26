@@ -1,191 +1,361 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Http\Controllers\Api\Student;
 
 use App\Http\Controllers\Controller;
-use App\Models\ClassSchedule;
-use App\Models\CourseEnrollment;
-use App\Models\Student;
 use Illuminate\Http\Request;
+use App\Models\Student;
+use App\Models\CourseEnrollment;
+use App\Models\ClassSchedule;
+use Carbon\Carbon;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Log;
-
 class StudentScheduleController extends Controller
 {
-    private function mapScheduleItem($item)
-    {
-        $course = $item->course;
-
-        $colors = [
-            'from-blue-500 to-cyan-500',
-            'from-purple-500 to-pink-500',
-            'from-green-500 to-emerald-500',
-            'from-orange-500 to-red-500',
-            'from-indigo-500 to-purple-500',
-            'from-teal-500 to-green-500',
-        ];
-
-        $cid = (int)($item->course_id ?? 0);
-        $color = $colors[$cid % count($colors)];
-
-        $subject = $course?->majorSubject?->subject;
-
-        $courseName = $subject?->subject_name ?? $subject?->name ?? null;
-        $courseCode = $subject?->code ?? null;
-
-        $teacherName =
-            $course?->teacher?->name ??
-            $course?->teacher?->full_name ??
-            null;
-
-        return [
-            'id' => $item->id,
-            'course_id' => $item->course_id,
-
-            'course_code' => $courseCode,
-            'course_name' => $courseName,
-            'instructor'  => $teacherName,
-
-            'day' => $item->day_of_week,
-            'day_of_week' => $item->day_of_week,
-
-            'start_time' => substr((string)$item->start_time, 0, 5),
-            'end_time'   => substr((string)$item->end_time, 0, 5),
-            'room'       => $item->room,
-            'session_type' => $item->session_type,
-
-            'color' => $color,
-        ];
-    }
-
-    private function enrolledCourseIds(Student $student)
-    {
-        return CourseEnrollment::where('student_id', $student->id)
-            ->where('status', 'enrolled')
-            ->distinct()
-            ->pluck('course_id');
-    }
-
+    /**
+     * Get full schedule
+     * GET /api/student/schedule
+     */
     public function getSchedule(Request $request)
     {
         try {
-            $student = Student::where('user_id', $request->user()->id)->firstOrFail();
-            $courseIds = $this->enrolledCourseIds($student);
+            $user = $request->user();
+            $student = Student::where('user_id', $user->id)->first();
 
-            $schedule = ClassSchedule::with(['course.majorSubject.subject', 'course.teacher'])
-                ->whereIn('course_id', $courseIds)
-                ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
-                ->orderBy('start_time')
-                ->get()
-                ->map(fn($item) => $this->mapScheduleItem($item));
+            if (!$student) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Student profile not found',
+                    'data' => []
+                ], 404);
+            }
 
+            $enrolledCourseIds = CourseEnrollment::where('student_id', $student->id)
+                ->where('status', 'enrolled')
+                ->pluck('course_id');
 
-            return response()->json(['data' => $schedule], 200);
-        } catch (\Throwable $e) {
-            Log::error('StudentScheduleController@getSchedule error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to load schedule'], 500);
+            $schedules = ClassSchedule::whereIn('course_id', $enrolledCourseIds)
+                ->with([
+                    'course.majorSubject.subject',
+                    'course.teacher.user',
+                    'course.classGroup',
+                    'roomRef'
+                ])
+                ->orderByRaw("FIELD(day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')")
+                ->orderBy('start_time', 'ASC')
+                ->get();
+
+            $formattedSchedule = $schedules->map(function ($schedule) {
+                return $this->formatScheduleItem($schedule);
+            });
+
+            return response()->json([
+                'data' => $formattedSchedule
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error fetching schedule: ' . $e->getMessage());
+            return response()->json([
+                'error' => true,
+                'message' => 'Failed to fetch schedule',
+                'data' => []
+            ], 500);
         }
     }
 
+    /**
+     * Get today's schedule
+     * GET /api/student/schedule/today
+     */
     public function getTodaySchedule(Request $request)
     {
         try {
-            $today = now()->format('l');
+            $user = $request->user();
+            $student = Student::where('user_id', $user->id)->first();
 
-            $student = Student::where('user_id', $request->user()->id)->firstOrFail();
-            $courseIds = $this->enrolledCourseIds($student);
+            if (!$student) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Student profile not found',
+                    'data' => []
+                ], 404);
+            }
 
-            $schedule = ClassSchedule::with(['course.majorSubject.subject', 'course.teacher'])
-                ->whereIn('course_id', $courseIds)
+            $today = Carbon::now()->format('l'); // Monday, Tuesday, etc.
+
+            $enrolledCourseIds = CourseEnrollment::where('student_id', $student->id)
+                ->where('status', 'enrolled')
+                ->pluck('course_id');
+
+            $schedules = ClassSchedule::whereIn('course_id', $enrolledCourseIds)
                 ->where('day_of_week', $today)
-                ->orderBy('start_time')
-                ->get()
-                ->map(fn($item) => $this->mapScheduleItem($item));
+                ->with([
+                    'course.majorSubject.subject',
+                    'course.teacher.user',
+                    'course.classGroup',
+                    'roomRef'
+                ])
+                ->orderBy('start_time', 'ASC')
+                ->get();
 
-            return response()->json(['data' => $schedule], 200);
-        } catch (\Throwable $e) {
-            Log::error('StudentScheduleController@getTodaySchedule error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to load today schedule'], 500);
+            $formattedSchedule = $schedules->map(function ($schedule) {
+                return $this->formatScheduleItem($schedule);
+            });
+
+            return response()->json([
+                'data' => $formattedSchedule
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error fetching today schedule: ' . $e->getMessage());
+            return response()->json([
+                'error' => true,
+                'message' => 'Failed to fetch today\'s schedule',
+                'data' => []
+            ], 500);
         }
     }
 
+    /**
+     * Get week schedule (current week)
+     * GET /api/student/schedule/week
+     */
     public function getWeekSchedule(Request $request)
     {
         try {
-            $request->validate([
-                'start_date' => 'required|date',
-            ]);
+            $user = $request->user();
+            $student = Student::where('user_id', $user->id)->first();
 
-            $student = Student::where('user_id', $request->user()->id)->firstOrFail();
-            $courseIds = $this->enrolledCourseIds($student);
+            if (!$student) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Student profile not found',
+                    'data' => []
+                ], 404);
+            }
 
-            $schedule = ClassSchedule::with(['course.majorSubject.subject', 'course.teacher'])
-                ->whereIn('course_id', $courseIds)
-                ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
-                ->orderBy('start_time')
-                ->get()
-                ->map(fn($item) => $this->mapScheduleItem($item));
+            $enrolledCourseIds = CourseEnrollment::where('student_id', $student->id)
+                ->where('status', 'enrolled')
+                ->pluck('course_id');
+
+            $schedules = ClassSchedule::whereIn('course_id', $enrolledCourseIds)
+                ->with([
+                    'course.majorSubject.subject',
+                    'course.teacher.user',
+                    'course.classGroup',
+                    'roomRef'
+                ])
+                ->orderByRaw("FIELD(day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')")
+                ->orderBy('start_time', 'ASC')
+                ->get();
+
+            // Group by day of week
+            $weekSchedule = [
+                'Monday' => [],
+                'Tuesday' => [],
+                'Wednesday' => [],
+                'Thursday' => [],
+                'Friday' => [],
+                'Saturday' => [],
+                'Sunday' => [],
+            ];
+
+            foreach ($schedules as $schedule) {
+                $dayOfWeek = $schedule->day_of_week;
+                if (isset($weekSchedule[$dayOfWeek])) {
+                    $weekSchedule[$dayOfWeek][] = $this->formatScheduleItem($schedule);
+                }
+            }
 
             return response()->json([
-                'data' => $schedule,
-                'week_start' => $request->start_date,
-            ], 200);
-        } catch (\Throwable $e) {
-            Log::error('StudentScheduleController@getWeekSchedule error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to load week schedule'], 500);
+                'data' => $weekSchedule
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error fetching week schedule: ' . $e->getMessage());
+            return response()->json([
+                'error' => true,
+                'message' => 'Failed to fetch week schedule',
+                'data' => []
+            ], 500);
         }
     }
 
+    /**
+     * Get upcoming classes (next 7 days)
+     * GET /api/student/schedule/upcoming
+     */
     public function getUpcoming(Request $request)
     {
         try {
-            $student = Student::where('user_id', $request->user()->id)->firstOrFail();
-            $courseIds = $this->enrolledCourseIds($student);
+            $user = $request->user();
+            $student = Student::where('user_id', $user->id)->first();
 
-            $todayName = now()->format('l');
+            if (!$student) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Student profile not found',
+                    'data' => []
+                ], 404);
+            }
 
-            $schedule = ClassSchedule::with(['course.majorSubject.subject', 'course.teacher'])
-                ->whereIn('course_id', $courseIds)
-                ->where('day_of_week', $todayName)
-                ->orderBy('start_time')
-                ->get()
-                ->filter(function ($item) {
-                    $now = now();
-                    $startAt = now()->setTimeFromTimeString(substr((string)$item->start_time, 0, 5));
-                    return $startAt->greaterThanOrEqualTo($now);
-                })
-                ->values()
-                ->take(5)
-                ->map(fn($item) => $this->mapScheduleItem($item));
+            $enrolledCourseIds = CourseEnrollment::where('student_id', $student->id)
+                ->where('status', 'enrolled')
+                ->pluck('course_id');
 
-            return response()->json(['data' => $schedule], 200);
-        } catch (\Throwable $e) {
-            Log::error('StudentScheduleController@getUpcoming error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to load upcoming classes'], 500);
+            // Get schedules for enrolled courses
+            $schedules = ClassSchedule::whereIn('course_id', $enrolledCourseIds)
+                ->with([
+                    'course.majorSubject.subject',
+                    'course.teacher.user',
+                    'course.classGroup',
+                    'roomRef'
+                ])
+                ->get();
+
+            // Filter upcoming classes for next 7 days
+            $upcomingClasses = [];
+            $now = Carbon::now();
+            $endDate = $now->copy()->addDays(7);
+
+            for ($date = $now->copy(); $date->lte($endDate); $date->addDay()) {
+                $dayName = $date->format('l');
+                
+                foreach ($schedules as $schedule) {
+                    if ($schedule->day_of_week === $dayName) {
+                        $classDateTime = $date->copy()->setTimeFromTimeString($schedule->start_time);
+                        
+                        // Only include future classes
+                        if ($classDateTime->gt(Carbon::now())) {
+                            $upcomingClasses[] = array_merge(
+                                $this->formatScheduleItem($schedule),
+                                [
+                                    'date' => $date->format('Y-m-d'),
+                                    'datetime' => $classDateTime->toISOString(),
+                                ]
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Sort by datetime
+            usort($upcomingClasses, function ($a, $b) {
+                return strtotime($a['datetime']) - strtotime($b['datetime']);
+            });
+
+            return response()->json([
+                'data' => $upcomingClasses
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error fetching upcoming classes: ' . $e->getMessage());
+            return response()->json([
+                'error' => true,
+                'message' => 'Failed to fetch upcoming classes',
+                'data' => []
+            ], 500);
         }
     }
 
+    /**
+     * Download schedule as PDF
+     * GET /api/student/schedule/download
+     */
     public function downloadSchedule(Request $request)
     {
         try {
-            $student = Student::where('user_id', $request->user()->id)->firstOrFail();
-            $courseIds = $this->enrolledCourseIds($student);
+            $user = $request->user();
+            $student = Student::where('user_id', $user->id)->first();
 
-            $schedule = ClassSchedule::with(['course.majorSubject.subject', 'course.teacher'])
-                ->whereIn('course_id', $courseIds)
-                ->orderByRaw("FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
-                ->orderBy('start_time')
-                ->get()
-                ->map(fn($item) => $this->mapScheduleItem($item));
+            if (!$student) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Student profile not found',
+                ], 404);
+            }
 
-            $json = json_encode(['data' => $schedule], JSON_PRETTY_PRINT);
+            $enrolledCourseIds = CourseEnrollment::where('student_id', $student->id)
+                ->where('status', 'enrolled')
+                ->pluck('course_id');
 
-            return response($json, 200, [
-                'Content-Type' => 'application/json',
-                'Content-Disposition' => 'attachment; filename="my-schedule.json"',
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('StudentScheduleController@downloadSchedule error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to download schedule'], 500);
+            $schedules = ClassSchedule::whereIn('course_id', $enrolledCourseIds)
+                ->with([
+                    'course.majorSubject.subject',
+                    'course.teacher.user',
+                    'course.classGroup',
+                    'roomRef'
+                ])
+                ->orderByRaw("FIELD(day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')")
+                ->orderBy('start_time', 'ASC')
+                ->get();
+
+            // Group by day
+            $weekSchedule = [
+                'Monday' => [],
+                'Tuesday' => [],
+                'Wednesday' => [],
+                'Thursday' => [],
+                'Friday' => [],
+                'Saturday' => [],
+                'Sunday' => [],
+            ];
+
+            foreach ($schedules as $schedule) {
+                $dayOfWeek = $schedule->day_of_week;
+                if (isset($weekSchedule[$dayOfWeek])) {
+                    $weekSchedule[$dayOfWeek][] = $this->formatScheduleItem($schedule);
+                }
+            }
+
+            $data = [
+                'student' => $student,
+                'user' => $user,
+                'schedule' => $weekSchedule,
+                'generated_at' => Carbon::now()->format('Y-m-d H:i:s'),
+            ];
+
+            $pdf = Pdf::loadView('pdf.student-schedule', $data);
+            
+            return $pdf->download('schedule-' . $student->student_code . '.pdf');
+
+        } catch (\Exception $e) {
+            Log::error('Error downloading schedule: ' . $e->getMessage());
+            return response()->json([
+                'error' => true,
+                'message' => 'Failed to download schedule. Make sure barryvdh/laravel-dompdf is installed.',
+            ], 500);
         }
+    }
+
+    /**
+     * Helper: Format schedule item
+     */
+    private function formatScheduleItem(ClassSchedule $schedule): array
+    {
+        $course = $schedule->course;
+        $subject = $course->majorSubject?->subject;
+        $teacher = $course->teacher;
+        $room = $schedule->roomRef;
+
+        return [
+            'id' => $schedule->id,
+            'course' => [
+                'id' => $course->id,
+                'course_code' => $subject?->subject_code ?? 'N/A',
+                'code' => $subject?->subject_code ?? 'N/A',
+                'course_name' => $subject?->subject_name ?? 'N/A',
+                'title' => $subject?->subject_name ?? 'N/A',
+                'instructor_name' => $teacher?->user?->name ?? 'N/A',
+                'instructor' => $teacher?->user?->name ?? 'N/A',
+            ],
+            'day_of_week' => $schedule->day_of_week,
+            'start_time' => $schedule->start_time,
+            'end_time' => $schedule->end_time,
+            'room' => $room 
+                ? $room->room_number . ' (' . ($room->building?->building_name ?? '') . ')' 
+                : ($schedule->room ?? 'N/A'),
+            'session_type' => $schedule->session_type,
+        ];
     }
 }

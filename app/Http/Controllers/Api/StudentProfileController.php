@@ -3,86 +3,151 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Student;
 use Illuminate\Http\Request;
+use App\Models\Student;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
-
 class StudentProfileController extends Controller
 {
+    /**
+     * Get student profile
+     * GET /api/student/profile
+     */
     public function getProfile(Request $request)
     {
         try {
             $user = $request->user();
+            $student = Student::where('user_id', $user->id)
+                ->with(['user', 'department', 'registration'])
+                ->first();
 
-            $student = Student::with([
-                    'department',
-                    'registration',
-                    'user',
-                ])
-                ->where('user_id', $user->id)
-                ->firstOrFail();
+            if (!$student) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Student profile not found',
+                ], 404);
+            }
 
-            // Build a clean response shape for frontend (avoid blanks)
-            $data = [
+            $profile = [
                 'id' => $student->id,
                 'student_code' => $student->student_code,
-
-                // Names from students table (your model has full_name_kh/full_name_en)
                 'full_name_kh' => $student->full_name_kh,
                 'full_name_en' => $student->full_name_en,
-
-                // Keep a generic "name" for UI
-                'name' => $student->full_name_en ?: $student->full_name_kh ?: ($student->user->name ?? null),
-
-                // Email from users table
-                'email' => $student->user->email ?? null,
-
-                // Phone + address from students table
-                'phone' => $student->phone_number,
-                'phone_number' => $student->phone_number,
-                'address' => $student->address,
-
                 'date_of_birth' => $student->date_of_birth,
                 'gender' => $student->gender,
                 'nationality' => $student->nationality,
-
+                'phone_number' => $student->phone_number,
+                'address' => $student->address,
                 'generation' => $student->generation,
-
-                // Parent fields (your model uses parent_name/parent_phone)
                 'parent_name' => $student->parent_name,
                 'parent_phone' => $student->parent_phone,
-
-                // profile picture accessor already appended
                 'profile_picture_url' => $student->profile_picture_url,
-
-                // Department relation
-                'department_id' => $student->department_id,
-                'department' => $student->department?->department_name ?? $student->department?->name ?? null,
-
-                // Registration relation (some data comes from registration)
-                'registration_id' => $student->registration_id,
-                'registration' => $student->registration, // optional full object
-
-                // If you have these columns later, keep them (avoid breaking UI)
-                'major' => $student->registration?->major?->major_name
-                    ?? $student->registration?->major_name
-                    ?? null,
-
-                // Optional placeholders (if your DB doesn’t have them yet)
-                'year' => null,
-                'semester' => null,
-                'academic_status' => 'Active',
-
-                // GPA/credits placeholders (real GPA should come from /student/grades/gpa)
-                'current_gpa' => null,
-                'cumulative_gpa' => null,
-                'credits_earned' => 0,
+                
+                // User information
+                'email' => $user->email,
+                'name' => $user->name,
+                'role' => $user->role,
+                
+                // Department information
+                'department' => [
+                    'id' => $student->department?->id,
+                    'name' => $student->department?->department_name,
+                    'code' => $student->department?->department_code,
+                ],
+                
+                // Registration information
+                'registration' => [
+                    'id' => $student->registration?->id,
+                    'academic_year' => $student->registration?->academic_year,
+                    'semester' => $student->registration?->semester,
+                    'status' => $student->registration?->status,
+                ],
             ];
 
-            return response()->json(['data' => $data], 200);
-        } catch (\Throwable $e) {
-            Log::error('StudentProfileController@getProfile error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to load student profile'], 500);
+            return response()->json([
+                'data' => $profile
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error fetching student profile: ' . $e->getMessage());
+            return response()->json([
+                'error' => true,
+                'message' => 'Failed to fetch profile',
+            ], 500);
+        }
+    }
+
+    /**
+     * Update student profile
+     * PUT /api/student/profile
+     */
+    public function updateProfile(Request $request)
+    {
+        try {
+            $user = $request->user();
+            $student = Student::where('user_id', $user->id)->first();
+
+            if (!$student) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Student profile not found',
+                ], 404);
+            }
+
+            $validator = Validator::make($request->all(), [
+                'phone_number' => 'nullable|string|max:20',
+                'address' => 'nullable|string|max:500',
+                'parent_name' => 'nullable|string|max:255',
+                'parent_phone' => 'nullable|string|max:20',
+                'profile_picture' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            // Update allowed fields
+            $student->phone_number = $request->input('phone_number', $student->phone_number);
+            $student->address = $request->input('address', $student->address);
+            $student->parent_name = $request->input('parent_name', $student->parent_name);
+            $student->parent_phone = $request->input('parent_phone', $student->parent_phone);
+
+            // Handle profile picture upload
+            if ($request->hasFile('profile_picture')) {
+                // Delete old picture if exists
+                if ($student->profile_picture_path) {
+                    Storage::disk('public')->delete($student->profile_picture_path);
+                }
+
+                // Store new picture
+                $path = $request->file('profile_picture')->store('profile_pictures', 'public');
+                $student->profile_picture_path = $path;
+            }
+
+            $student->save();
+
+            return response()->json([
+                'message' => 'Profile updated successfully',
+                'data' => [
+                    'phone_number' => $student->phone_number,
+                    'address' => $student->address,
+                    'parent_name' => $student->parent_name,
+                    'parent_phone' => $student->parent_phone,
+                    'profile_picture_url' => $student->profile_picture_url,
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error updating student profile: ' . $e->getMessage());
+            return response()->json([
+                'error' => true,
+                'message' => 'Failed to update profile',
+            ], 500);
         }
     }
 }
