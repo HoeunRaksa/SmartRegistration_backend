@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Student;
+use App\Models\StudentClassGroup;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -55,24 +56,36 @@ class AdminStudentSearchController extends Controller
                 });
             }
 
-            // ✅ FILTER 3: Academic Year + Semester + Class Group + Shift
-            // All these come from student_class_groups pivot or class_groups table
-            if (!empty($academicYear) || !empty($semester) || !empty($classGroupId) || !empty($shift)) {
-                $studentsQ->whereHas('classGroups', function ($cg) use ($academicYear, $semester, $classGroupId, $shift) {
-                    // Filter by pivot table columns using direct table reference
+            // ✅ FILTER 3: Class Group + Academic Year + Semester (via pivot table)
+            // These filters must work together through student_class_groups
+            if (!empty($classGroupId) || !empty($academicYear) || !empty($semester)) {
+                // Use a subquery approach for better performance and accuracy
+                $pivotQuery = StudentClassGroup::query()->select('student_id');
+
+                if (!empty($classGroupId)) {
+                    $pivotQuery->where('class_group_id', $classGroupId);
+                }
+                if (!empty($academicYear)) {
+                    $pivotQuery->where('academic_year', $academicYear);
+                }
+                if (!empty($semester)) {
+                    $pivotQuery->where('semester', (int)$semester);
+                }
+
+                $studentsQ->whereIn('students.id', $pivotQuery);
+            }
+
+            // ✅ FILTER 4: Shift (from class_groups table via pivot)
+            if (!empty($shift)) {
+                $studentsQ->whereHas('classGroups', function ($cg) use ($shift, $academicYear, $semester) {
+                    $cg->where('class_groups.shift', $shift);
+                    
+                    // If academic_year and semester are also provided, apply them to ensure consistency
                     if (!empty($academicYear)) {
                         $cg->where('student_class_groups.academic_year', $academicYear);
                     }
                     if (!empty($semester)) {
                         $cg->where('student_class_groups.semester', (int)$semester);
-                    }
-
-                    // Filter by class_groups table columns
-                    if (!empty($classGroupId)) {
-                        $cg->where('class_groups.id', $classGroupId);
-                    }
-                    if (!empty($shift)) {
-                        $cg->where('class_groups.shift', $shift);
                     }
                 });
             }
