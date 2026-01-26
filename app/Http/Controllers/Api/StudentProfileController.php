@@ -155,13 +155,20 @@ class StudentProfileController extends Controller
             }
 
             // Store new picture
-            $path = $request->file('profile_picture')->store('profile_pictures', 'public');
+            $path = $request->file('profile_picture')->store('uploads/profiles', 'public');
 
-            $student->update(['profile_picture' => $path]);
+            // Update USER (not student) because dashboard reads from user
+            $user->profile_picture_path = $path;
+            $user->save();
+
+            // Force refresh student to get the new accessor value
+            $student->load('user');
 
             return response()->json([
                 'message' => 'Profile picture uploaded successfully',
-                'data' => ['profile_picture_url' => $student->fresh()->profile_picture_url]
+                'data' => [
+                    'profile_picture_url' => $user->profile_picture_url
+                ]
             ], 200);
         } catch (\Throwable $e) {
             Log::error('StudentProfileController@uploadProfilePicture error: ' . $e->getMessage());
