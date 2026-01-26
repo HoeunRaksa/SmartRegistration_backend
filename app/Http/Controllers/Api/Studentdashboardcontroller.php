@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use App\Models\Student;
 use App\Models\Course;
 use App\Models\CourseEnrollment;
@@ -15,7 +16,6 @@ use App\Models\Grade;
 use App\Models\AttendanceRecord;
 use App\Models\Message;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
 
 class StudentDashboardController extends Controller
 {
@@ -27,9 +27,19 @@ class StudentDashboardController extends Controller
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Unauthorized',
+                    'data' => []
+                ], 401);
+            }
+
             $student = Student::where('user_id', $user->id)->first();
 
             if (!$student) {
+                Log::warning("Student profile not found for user_id: " . $user->id);
                 return response()->json([
                     'error' => true,
                     'message' => 'Student profile not found',
@@ -40,19 +50,29 @@ class StudentDashboardController extends Controller
             $enrollments = CourseEnrollment::where('student_id', $student->id)
                 ->where('status', 'enrolled')
                 ->with([
-                    'course.majorSubject.subject',
-                    'course.teacher.user',
-                    'course.classGroup'
+                    'course' => function($q) {
+                        $q->with([
+                            'majorSubject.subject',
+                            'teacher.user',
+                            'classGroup'
+                        ]);
+                    }
                 ])
                 ->get();
 
             $courses = $enrollments->map(function ($enrollment) {
                 $course = $enrollment->course;
+                
+                if (!$course) {
+                    return null;
+                }
+                
                 $subject = $course->majorSubject?->subject;
                 $teacher = $course->teacher;
 
                 return [
                     'id' => $course->id,
+                    'enrollment_id' => $enrollment->id,
                     'course_code' => $subject?->subject_code ?? 'N/A',
                     'code' => $subject?->subject_code ?? 'N/A',
                     'course_name' => $subject?->subject_name ?? 'N/A',
@@ -64,19 +84,23 @@ class StudentDashboardController extends Controller
                     'academic_year' => $course->academic_year,
                     'class_group' => $course->classGroup?->class_name ?? 'N/A',
                     'status' => $enrollment->status,
-                    'progress' => $enrollment->progress ?? 0,
+                    'progress' => (float) ($enrollment->progress ?? 0),
+                    'enrolled_at' => $enrollment->enrolled_at?->toISOString(),
                 ];
-            });
+            })->filter()->values(); // Remove nulls
 
             return response()->json([
                 'data' => $courses
             ]);
 
         } catch (\Exception $e) {
-           Log::error('Error fetching enrolled courses: ' . $e->getMessage());
+            Log::error('Error fetching enrolled courses: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            
             return response()->json([
                 'error' => true,
                 'message' => 'Failed to fetch enrolled courses',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
                 'data' => []
             ], 500);
         }
@@ -90,6 +114,15 @@ class StudentDashboardController extends Controller
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Unauthorized',
+                    'data' => []
+                ], 401);
+            }
+
             $student = Student::where('user_id', $user->id)->first();
 
             if (!$student) {
@@ -108,6 +141,10 @@ class StudentDashboardController extends Controller
                 ->where('status', 'enrolled')
                 ->pluck('course_id');
 
+            if ($enrolledCourseIds->isEmpty()) {
+                return response()->json(['data' => []]);
+            }
+
             // Get today's schedules
             $schedules = ClassSchedule::whereIn('course_id', $enrolledCourseIds)
                 ->where('day_of_week', $today)
@@ -122,6 +159,11 @@ class StudentDashboardController extends Controller
 
             $todayClasses = $schedules->map(function ($schedule) {
                 $course = $schedule->course;
+                
+                if (!$course) {
+                    return null;
+                }
+                
                 $subject = $course->majorSubject?->subject;
                 $teacher = $course->teacher;
                 $room = $schedule->roomRef;
@@ -138,21 +180,26 @@ class StudentDashboardController extends Controller
                     ],
                     'start_time' => $schedule->start_time,
                     'end_time' => $schedule->end_time,
-                    'room' => $room ? $room->room_number . ' (' . $room->building?->building_name . ')' : ($schedule->room ?? 'N/A'),
+                    'room' => $room 
+                        ? $room->room_number . (($room->building?->building_name) ? ' (' . $room->building->building_name . ')' : '')
+                        : ($schedule->room ?? 'N/A'),
                     'day_of_week' => $schedule->day_of_week,
                     'session_type' => $schedule->session_type,
                 ];
-            });
+            })->filter()->values();
 
             return response()->json([
                 'data' => $todayClasses
             ]);
 
         } catch (\Exception $e) {
-           Log::error('Error fetching today schedule: ' . $e->getMessage());
+            Log::error('Error fetching today schedule: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            
             return response()->json([
                 'error' => true,
                 'message' => 'Failed to fetch schedule',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
                 'data' => []
             ], 500);
         }
@@ -166,6 +213,15 @@ class StudentDashboardController extends Controller
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Unauthorized',
+                    'data' => []
+                ], 401);
+            }
+
             $student = Student::where('user_id', $user->id)->first();
 
             if (!$student) {
@@ -212,10 +268,13 @@ class StudentDashboardController extends Controller
             ]);
 
         } catch (\Exception $e) {
-           Log::error('Error fetching grades: ' . $e->getMessage());
+            Log::error('Error fetching grades: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            
             return response()->json([
                 'error' => true,
                 'message' => 'Failed to fetch grades',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
                 'data' => []
             ], 500);
         }
@@ -229,6 +288,15 @@ class StudentDashboardController extends Controller
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Unauthorized',
+                    'data' => ['gpa' => 0]
+                ], 401);
+            }
+
             $student = Student::where('user_id', $user->id)->first();
 
             if (!$student) {
@@ -266,6 +334,7 @@ class StudentDashboardController extends Controller
                     }
 
                     $gpa = $count > 0 ? $totalPoints / $count : 0;
+                    $totalGrades = $count;
                 }
             }
 
@@ -277,10 +346,13 @@ class StudentDashboardController extends Controller
             ]);
 
         } catch (\Exception $e) {
-           Log::error('Error calculating GPA: ' . $e->getMessage());
+            Log::error('Error calculating GPA: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            
             return response()->json([
                 'error' => true,
                 'message' => 'Failed to calculate GPA',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
                 'data' => ['gpa' => 0]
             ], 500);
         }
@@ -294,6 +366,15 @@ class StudentDashboardController extends Controller
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Unauthorized',
+                    'data' => []
+                ], 401);
+            }
+
             $student = Student::where('user_id', $user->id)->first();
 
             if (!$student) {
@@ -308,6 +389,10 @@ class StudentDashboardController extends Controller
             $enrolledCourseIds = CourseEnrollment::where('student_id', $student->id)
                 ->where('status', 'enrolled')
                 ->pluck('course_id');
+
+            if ($enrolledCourseIds->isEmpty()) {
+                return response()->json(['data' => []]);
+            }
 
             // Get assignments for enrolled courses
             $assignments = Assignment::whereIn('course_id', $enrolledCourseIds)
@@ -343,11 +428,11 @@ class StudentDashboardController extends Controller
                         return [
                             'id' => $submission->id,
                             'submitted_at' => $submission->submitted_at?->toISOString(),
-                            'score' => (float) $submission->score,
+                            'score' => (float) ($submission->score ?? 0),
                             'status' => $submission->status,
                             'feedback' => $submission->feedback,
                         ];
-                    }),
+                    })->toArray(),
                 ];
             });
 
@@ -356,23 +441,35 @@ class StudentDashboardController extends Controller
             ]);
 
         } catch (\Exception $e) {
-           Log::error('Error fetching assignments: ' . $e->getMessage());
+            Log::error('Error fetching assignments: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            
             return response()->json([
                 'error' => true,
                 'message' => 'Failed to fetch assignments',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
                 'data' => []
             ], 500);
         }
     }
 
     /**
-     * Get attendance statistics for the authenticated student
+     * Get attendance statistics
      * GET /api/student/attendance/stats
      */
     public function getAttendanceStats(Request $request)
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Unauthorized',
+                    'data' => ['total' => 0, 'present' => 0]
+                ], 401);
+            }
+
             $student = Student::where('user_id', $user->id)->first();
 
             if (!$student) {
@@ -411,23 +508,34 @@ class StudentDashboardController extends Controller
             ]);
 
         } catch (\Exception $e) {
-           Log::error('Error fetching attendance stats: ' . $e->getMessage());
+            Log::error('Error fetching attendance stats: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            
             return response()->json([
                 'error' => true,
                 'message' => 'Failed to fetch attendance statistics',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
                 'data' => ['total' => 0, 'present' => 0]
             ], 500);
         }
     }
 
     /**
-     * Get message conversations for the authenticated student
+     * Get message conversations
      * GET /api/student/messages/conversations
      */
     public function getConversations(Request $request)
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Unauthorized',
+                    'data' => []
+                ], 401);
+            }
 
             // Get unique conversation partners (users the student has messaged with)
             $sentTo = Message::where('s_id', $user->id)
@@ -487,10 +595,13 @@ class StudentDashboardController extends Controller
             ]);
 
         } catch (\Exception $e) {
-           Log::error('Error fetching conversations: ' . $e->getMessage());
+            Log::error('Error fetching conversations: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            
             return response()->json([
                 'error' => true,
                 'message' => 'Failed to fetch conversations',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
                 'data' => []
             ], 500);
         }
@@ -504,6 +615,14 @@ class StudentDashboardController extends Controller
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'error' => true,
+                    'message' => 'Unauthorized',
+                ], 401);
+            }
+
             $student = Student::where('user_id', $user->id)->first();
 
             if (!$student) {
@@ -513,7 +632,7 @@ class StudentDashboardController extends Controller
                 ], 404);
             }
 
-            // Get all data in parallel (more efficient)
+            // Get all data
             $enrolledCourses = $this->getEnrolledCoursesData($student);
             $todaySchedule = $this->getTodayScheduleData($student);
             $grades = $this->getGradesData($student);
@@ -550,19 +669,19 @@ class StudentDashboardController extends Controller
             ]);
 
         } catch (\Exception $e) {
-           Log::error('Error fetching dashboard: ' . $e->getMessage());
+            Log::error('Error fetching dashboard: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            
             return response()->json([
                 'error' => true,
                 'message' => 'Failed to fetch dashboard data',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
 
     // ==================== HELPER METHODS ====================
 
-    /**
-     * Convert percentage to GPA (4.0 scale)
-     */
     private function convertPercentageToGPA(float $percentage): float
     {
         if ($percentage >= 90) return 4.0;
@@ -577,204 +696,235 @@ class StudentDashboardController extends Controller
         return 0.0;
     }
 
-    /**
-     * Get enrolled courses data (helper for combined dashboard)
-     */
     private function getEnrolledCoursesData(Student $student): array
     {
-        $enrollments = CourseEnrollment::where('student_id', $student->id)
-            ->where('status', 'enrolled')
-            ->with(['course.majorSubject.subject', 'course.teacher.user', 'course.classGroup'])
-            ->get();
+        try {
+            $enrollments = CourseEnrollment::where('student_id', $student->id)
+                ->where('status', 'enrolled')
+                ->with(['course.majorSubject.subject', 'course.teacher.user', 'course.classGroup'])
+                ->get();
 
-        return $enrollments->map(function ($enrollment) {
-            $course = $enrollment->course;
-            $subject = $course->majorSubject?->subject;
-            $teacher = $course->teacher;
+            return $enrollments->map(function ($enrollment) {
+                $course = $enrollment->course;
+                if (!$course) return null;
+                
+                $subject = $course->majorSubject?->subject;
+                $teacher = $course->teacher;
 
-            return [
-                'id' => $course->id,
-                'course_code' => $subject?->subject_code ?? 'N/A',
-                'course_name' => $subject?->subject_name ?? 'N/A',
-                'credits' => $subject?->credits ?? 0,
-                'instructor_name' => $teacher?->user?->name ?? 'N/A',
-                'semester' => $course->semester,
-                'academic_year' => $course->academic_year,
-            ];
-        })->toArray();
+                return [
+                    'id' => $course->id,
+                    'course_code' => $subject?->subject_code ?? 'N/A',
+                    'course_name' => $subject?->subject_name ?? 'N/A',
+                    'credits' => $subject?->credits ?? 0,
+                    'instructor_name' => $teacher?->user?->name ?? 'N/A',
+                    'semester' => $course->semester,
+                    'academic_year' => $course->academic_year,
+                ];
+            })->filter()->values()->toArray();
+        } catch (\Exception $e) {
+            Log::error('Error in getEnrolledCoursesData: ' . $e->getMessage());
+            return [];
+        }
     }
 
-    /**
-     * Get today's schedule data (helper for combined dashboard)
-     */
     private function getTodayScheduleData(Student $student): array
     {
-        $today = Carbon::now()->format('l');
-        $enrolledCourseIds = CourseEnrollment::where('student_id', $student->id)
-            ->where('status', 'enrolled')
-            ->pluck('course_id');
+        try {
+            $today = Carbon::now()->format('l');
+            $enrolledCourseIds = CourseEnrollment::where('student_id', $student->id)
+                ->where('status', 'enrolled')
+                ->pluck('course_id');
 
-        $schedules = ClassSchedule::whereIn('course_id', $enrolledCourseIds)
-            ->where('day_of_week', $today)
-            ->with(['course.majorSubject.subject', 'course.teacher.user', 'roomRef'])
-            ->orderBy('start_time', 'ASC')
-            ->get();
+            if ($enrolledCourseIds->isEmpty()) {
+                return [];
+            }
 
-        return $schedules->map(function ($schedule) {
-            $course = $schedule->course;
-            $subject = $course->majorSubject?->subject;
-            $teacher = $course->teacher;
-            $room = $schedule->roomRef;
+            $schedules = ClassSchedule::whereIn('course_id', $enrolledCourseIds)
+                ->where('day_of_week', $today)
+                ->with(['course.majorSubject.subject', 'course.teacher.user', 'roomRef'])
+                ->orderBy('start_time', 'ASC')
+                ->get();
 
-            return [
-                'id' => $schedule->id,
-                'course_code' => $subject?->subject_code ?? 'N/A',
-                'course_name' => $subject?->subject_name ?? 'N/A',
-                'start_time' => $schedule->start_time,
-                'end_time' => $schedule->end_time,
-                'room' => $room ? $room->room_number : ($schedule->room ?? 'N/A'),
-                'instructor_name' => $teacher?->user?->name ?? 'N/A',
-            ];
-        })->toArray();
+            return $schedules->map(function ($schedule) {
+                $course = $schedule->course;
+                if (!$course) return null;
+                
+                $subject = $course->majorSubject?->subject;
+                $teacher = $course->teacher;
+                $room = $schedule->roomRef;
+
+                return [
+                    'id' => $schedule->id,
+                    'course_code' => $subject?->subject_code ?? 'N/A',
+                    'course_name' => $subject?->subject_name ?? 'N/A',
+                    'start_time' => $schedule->start_time,
+                    'end_time' => $schedule->end_time,
+                    'room' => $room ? $room->room_number : ($schedule->room ?? 'N/A'),
+                    'instructor_name' => $teacher?->user?->name ?? 'N/A',
+                ];
+            })->filter()->values()->toArray();
+        } catch (\Exception $e) {
+            Log::error('Error in getTodayScheduleData: ' . $e->getMessage());
+            return [];
+        }
     }
 
-    /**
-     * Get grades data (helper for combined dashboard)
-     */
     private function getGradesData(Student $student): array
     {
-        $grades = Grade::where('student_id', $student->id)
-            ->with(['course.majorSubject.subject'])
-            ->orderBy('created_at', 'DESC')
-            ->limit(10)
-            ->get();
+        try {
+            $grades = Grade::where('student_id', $student->id)
+                ->with(['course.majorSubject.subject'])
+                ->orderBy('created_at', 'DESC')
+                ->limit(10)
+                ->get();
 
-        return $grades->map(function ($grade) {
-            $subject = $grade->course?->majorSubject?->subject;
+            return $grades->map(function ($grade) {
+                $subject = $grade->course?->majorSubject?->subject;
 
-            return [
-                'id' => $grade->id,
-                'course_code' => $subject?->subject_code ?? 'N/A',
-                'course_name' => $subject?->subject_name ?? 'N/A',
-                'assignment_name' => $grade->assignment_name,
-                'score' => (float) $grade->score,
-                'total_points' => (float) $grade->total_points,
-                'created_at' => $grade->created_at->toISOString(),
-            ];
-        })->toArray();
+                return [
+                    'id' => $grade->id,
+                    'course_code' => $subject?->subject_code ?? 'N/A',
+                    'course_name' => $subject?->subject_name ?? 'N/A',
+                    'assignment_name' => $grade->assignment_name,
+                    'score' => (float) $grade->score,
+                    'total_points' => (float) $grade->total_points,
+                    'created_at' => $grade->created_at->toISOString(),
+                ];
+            })->toArray();
+        } catch (\Exception $e) {
+            Log::error('Error in getGradesData: ' . $e->getMessage());
+            return [];
+        }
     }
 
-    /**
-     * Get GPA data (helper for combined dashboard)
-     */
     private function getGPAData(Student $student): float
     {
-        $gpaData = Grade::where('student_id', $student->id)
-            ->whereNotNull('grade_point')
-            ->avg('grade_point');
+        try {
+            $gpaData = Grade::where('student_id', $student->id)
+                ->whereNotNull('grade_point')
+                ->avg('grade_point');
 
-        return round((float) ($gpaData ?? 0), 2);
+            return round((float) ($gpaData ?? 0), 2);
+        } catch (\Exception $e) {
+            Log::error('Error in getGPAData: ' . $e->getMessage());
+            return 0.0;
+        }
     }
 
-    /**
-     * Get assignments data (helper for combined dashboard)
-     */
     private function getAssignmentsData(Student $student): array
     {
-        $enrolledCourseIds = CourseEnrollment::where('student_id', $student->id)
-            ->where('status', 'enrolled')
-            ->pluck('course_id');
+        try {
+            $enrolledCourseIds = CourseEnrollment::where('student_id', $student->id)
+                ->where('status', 'enrolled')
+                ->pluck('course_id');
 
-        $assignments = Assignment::whereIn('course_id', $enrolledCourseIds)
-            ->with([
-                'course.majorSubject.subject',
-                'submissions' => function ($query) use ($student) {
-                    $query->where('student_id', $student->id);
-                }
-            ])
-            ->orderBy('due_date', 'ASC')
-            ->get();
+            if ($enrolledCourseIds->isEmpty()) {
+                return [];
+            }
 
-        return $assignments->map(function ($assignment) {
-            $subject = $assignment->course?->majorSubject?->subject;
+            $assignments = Assignment::whereIn('course_id', $enrolledCourseIds)
+                ->with([
+                    'course.majorSubject.subject',
+                    'submissions' => function ($query) use ($student) {
+                        $query->where('student_id', $student->id);
+                    }
+                ])
+                ->orderBy('due_date', 'ASC')
+                ->get();
 
-            return [
-                'id' => $assignment->id,
-                'course_code' => $subject?->subject_code ?? 'N/A',
-                'title' => $assignment->title,
-                'due_date' => $assignment->due_date ? $assignment->due_date->format('Y-m-d') : null,
-                'due_time' => $assignment->due_time,
-                'points' => (float) $assignment->points,
-                'submissions' => $assignment->submissions->map(function ($s) {
-                    return [
-                        'id' => $s->id,
-                        'submitted_at' => $s->submitted_at?->toISOString(),
-                        'score' => (float) $s->score,
-                    ];
-                })->toArray(),
-            ];
-        })->toArray();
+            return $assignments->map(function ($assignment) {
+                $subject = $assignment->course?->majorSubject?->subject;
+
+                return [
+                    'id' => $assignment->id,
+                    'course_code' => $subject?->subject_code ?? 'N/A',
+                    'title' => $assignment->title,
+                    'due_date' => $assignment->due_date ? $assignment->due_date->format('Y-m-d') : null,
+                    'due_time' => $assignment->due_time,
+                    'points' => (float) $assignment->points,
+                    'submissions' => $assignment->submissions->map(function ($s) {
+                        return [
+                            'id' => $s->id,
+                            'submitted_at' => $s->submitted_at?->toISOString(),
+                            'score' => (float) ($s->score ?? 0),
+                        ];
+                    })->toArray(),
+                ];
+            })->toArray();
+        } catch (\Exception $e) {
+            Log::error('Error in getAssignmentsData: ' . $e->getMessage());
+            return [];
+        }
     }
 
-    /**
-     * Get attendance stats data (helper for combined dashboard)
-     */
     private function getAttendanceStatsData(Student $student): array
     {
-        $stats = AttendanceRecord::where('student_id', $student->id)
-            ->selectRaw('
-                COUNT(*) as total,
-                SUM(CASE WHEN status = "present" THEN 1 ELSE 0 END) as present,
-                SUM(CASE WHEN status = "absent" THEN 1 ELSE 0 END) as absent
-            ')
-            ->first();
+        try {
+            $stats = AttendanceRecord::where('student_id', $student->id)
+                ->selectRaw('
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = "present" THEN 1 ELSE 0 END) as present,
+                    SUM(CASE WHEN status = "absent" THEN 1 ELSE 0 END) as absent
+                ')
+                ->first();
 
-        $total = $stats->total ?? 0;
-        $present = $stats->present ?? 0;
-        $percentage = $total > 0 ? ($present / $total) * 100 : 0;
+            $total = $stats->total ?? 0;
+            $present = $stats->present ?? 0;
+            $percentage = $total > 0 ? ($present / $total) * 100 : 0;
 
-        return [
-            'total' => (int) $total,
-            'present' => (int) $present,
-            'absent' => (int) ($stats->absent ?? 0),
-            'percentage' => round($percentage, 2),
-        ];
+            return [
+                'total' => (int) $total,
+                'present' => (int) $present,
+                'absent' => (int) ($stats->absent ?? 0),
+                'percentage' => round($percentage, 2),
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error in getAttendanceStatsData: ' . $e->getMessage());
+            return [
+                'total' => 0,
+                'present' => 0,
+                'absent' => 0,
+                'percentage' => 0,
+            ];
+        }
     }
 
-    /**
-     * Get conversations data (helper for combined dashboard)
-     */
     private function getConversationsData($user): array
     {
-        $sentTo = Message::where('s_id', $user->id)->select('r_id as user_id')->distinct();
-        $receivedFrom = Message::where('r_id', $user->id)->select('s_id as user_id')->distinct();
-        $conversationUserIds = $sentTo->union($receivedFrom)->pluck('user_id');
+        try {
+            $sentTo = Message::where('s_id', $user->id)->select('r_id as user_id')->distinct();
+            $receivedFrom = Message::where('r_id', $user->id)->select('s_id as user_id')->distinct();
+            $conversationUserIds = $sentTo->union($receivedFrom)->pluck('user_id');
 
-        $conversations = [];
-        foreach ($conversationUserIds as $userId) {
-            $latestMessage = Message::where(function ($query) use ($user, $userId) {
-                $query->where('s_id', $user->id)->where('r_id', $userId);
-            })->orWhere(function ($query) use ($user, $userId) {
-                $query->where('s_id', $userId)->where('r_id', $user->id);
-            })
-            ->with(['sender', 'receiver'])
-            ->orderBy('created_at', 'DESC')
-            ->first();
+            $conversations = [];
+            foreach ($conversationUserIds as $userId) {
+                $latestMessage = Message::where(function ($query) use ($user, $userId) {
+                    $query->where('s_id', $user->id)->where('r_id', $userId);
+                })->orWhere(function ($query) use ($user, $userId) {
+                    $query->where('s_id', $userId)->where('r_id', $user->id);
+                })
+                ->with(['sender', 'receiver'])
+                ->orderBy('created_at', 'DESC')
+                ->first();
 
-            if ($latestMessage) {
-                $participant = $latestMessage->s_id == $user->id
-                    ? $latestMessage->receiver
-                    : $latestMessage->sender;
+                if ($latestMessage) {
+                    $participant = $latestMessage->s_id == $user->id
+                        ? $latestMessage->receiver
+                        : $latestMessage->sender;
 
-                $conversations[] = [
-                    'id' => $userId,
-                    'participant_name' => $participant?->name ?? 'Unknown',
-                    'last_message' => $latestMessage->content,
-                    'last_message_time' => $latestMessage->created_at->toISOString(),
-                ];
+                    $conversations[] = [
+                        'id' => $userId,
+                        'participant_name' => $participant?->name ?? 'Unknown',
+                        'last_message' => $latestMessage->content,
+                        'last_message_time' => $latestMessage->created_at->toISOString(),
+                    ];
+                }
             }
-        }
 
-        return $conversations;
+            return $conversations;
+        } catch (\Exception $e) {
+            Log::error('Error in getConversationsData: ' . $e->getMessage());
+            return [];
+        }
     }
 }
