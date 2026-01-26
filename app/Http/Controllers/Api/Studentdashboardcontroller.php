@@ -179,14 +179,24 @@ class StudentDashboardController extends Controller
             return $grades->map(function ($grade) {
                 $subject = $grade->course?->majorSubject?->subject;
 
+                // Handle created_at - could be Carbon instance or string
+                $createdAt = $grade->created_at;
+                if ($createdAt instanceof \Carbon\Carbon) {
+                    $createdAtFormatted = $createdAt->toISOString();
+                } elseif (is_string($createdAt) && !empty($createdAt)) {
+                    $createdAtFormatted = $createdAt;
+                } else {
+                    $createdAtFormatted = null;
+                }
+
                 return [
                     'id' => $grade->id,
                     'course_code' => $subject?->subject_code ?? 'N/A',
                     'course_name' => $subject?->subject_name ?? 'N/A',
-                    'assignment_name' => $grade->assignment_name,
-                    'score' => (float) $grade->score,
-                    'total_points' => (float) $grade->total_points,
-                    'created_at' => $grade->created_at->toISOString(),
+                    'assignment_name' => $grade->assignment_name ?? null,
+                    'score' => (float) ($grade->score ?? 0),
+                    'total_points' => (float) ($grade->total_points ?? 0),
+                    'created_at' => $createdAtFormatted,
                 ];
             })->toArray();
         } catch (\Throwable $e) {
@@ -233,17 +243,36 @@ class StudentDashboardController extends Controller
             return $assignments->map(function ($assignment) {
                 $subject = $assignment->course?->majorSubject?->subject;
 
+                // Handle due_date - could be Carbon instance or string
+                $dueDate = $assignment->due_date;
+                if ($dueDate instanceof \Carbon\Carbon) {
+                    $dueDateFormatted = $dueDate->format('Y-m-d');
+                } elseif (is_string($dueDate) && !empty($dueDate)) {
+                    $dueDateFormatted = $dueDate;
+                } else {
+                    $dueDateFormatted = null;
+                }
+
                 return [
                     'id' => $assignment->id,
                     'course_code' => $subject?->subject_code ?? 'N/A',
                     'title' => $assignment->title,
-                    'due_date' => $assignment->due_date ? $assignment->due_date->format('Y-m-d') : null,
+                    'due_date' => $dueDateFormatted,
                     'due_time' => $assignment->due_time,
-                    'points' => (float) $assignment->points,
+                    'points' => (float) ($assignment->points ?? 0),
                     'submissions' => $assignment->submissions->map(function ($s) {
+                        $submittedAt = $s->submitted_at;
+                        if ($submittedAt instanceof \Carbon\Carbon) {
+                            $submittedAtFormatted = $submittedAt->toISOString();
+                        } elseif (is_string($submittedAt) && !empty($submittedAt)) {
+                            $submittedAtFormatted = $submittedAt;
+                        } else {
+                            $submittedAtFormatted = null;
+                        }
+
                         return [
                             'id' => $s->id,
-                            'submitted_at' => $s->submitted_at?->toISOString(),
+                            'submitted_at' => $submittedAtFormatted,
                             'score' => (float) ($s->score ?? 0),
                         ];
                     })->toArray(),
@@ -259,11 +288,11 @@ class StudentDashboardController extends Controller
     {
         try {
             $stats = AttendanceRecord::where('student_id', $student->id)
-                ->selectRaw('
+                ->selectRaw("
                     COUNT(*) as total,
-                    SUM(CASE WHEN status = "present" THEN 1 ELSE 0 END) as present,
-                    SUM(CASE WHEN status = "absent" THEN 1 ELSE 0 END) as absent
-                ')
+                    SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present,
+                    SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent
+                ")
                 ->first();
 
             $total = $stats->total ?? 0;
