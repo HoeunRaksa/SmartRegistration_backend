@@ -10,7 +10,7 @@ use App\Models\Course;
 use App\Models\CourseEnrollment;
 use App\Models\ClassSchedule;
 use App\Models\Assignment;
- use App\Models\AssignmentSubmission;
+use App\Models\AssignmentSubmission;
 use App\Models\Grade;
 use App\Models\AttendanceRecord;
 use App\Models\Message;
@@ -24,9 +24,15 @@ class StudentDashboardController extends Controller
      */
     public function getDashboard(Request $request)
     {
+        Log::info('DASHBOARD AUTH', [
+            'auth_id' => auth()->id(),
+            'auth_role' => auth()->user()?->role,
+            'auth_email' => auth()->user()?->email,
+        ]);
+
         try {
             $user = $request->user();
-            
+
             if (!$user) {
                 return response()->json([
                     'success' => false,
@@ -43,7 +49,7 @@ class StudentDashboardController extends Controller
                 ], 404);
             }
 
-             // Get all data
+            // Get all data
             $enrolledCourses = $this->getEnrolledCoursesData($student);
             $todaySchedule = $this->getTodayScheduleData($student);
             $grades = $this->getGradesData($student);
@@ -79,11 +85,10 @@ class StudentDashboardController extends Controller
                     'conversations' => $conversations,
                 ]
             ], 200);
-
         } catch (\Throwable $e) {
             Log::error('StudentDashboardController@getDashboard error: ' . $e->getMessage());
             Log::error('Stack trace: ' . $e->getTraceAsString());
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch dashboard data',
@@ -105,7 +110,7 @@ class StudentDashboardController extends Controller
             return $enrollments->map(function ($enrollment) {
                 $course = $enrollment->course;
                 if (!$course) return null;
-                
+
                 $subject = $course->majorSubject?->subject;
                 $teacher = $course->teacher;
 
@@ -146,7 +151,7 @@ class StudentDashboardController extends Controller
             return $schedules->map(function ($schedule) {
                 $course = $schedule->course;
                 if (!$course) return null;
-                
+
                 $subject = $course->majorSubject?->subject;
                 $teacher = $course->teacher;
                 $room = $schedule->roomRef;
@@ -330,9 +335,9 @@ class StudentDashboardController extends Controller
                 })->orWhere(function ($query) use ($user, $userId) {
                     $query->where('s_id', $userId)->where('r_id', $user->id);
                 })
-                ->with(['sender', 'receiver'])
-                ->orderBy('created_at', 'DESC')
-                ->first();
+                    ->with(['sender', 'receiver'])
+                    ->orderBy('created_at', 'DESC')
+                    ->first();
 
                 if ($latestMessage) {
                     $participant = $latestMessage->s_id == $user->id
