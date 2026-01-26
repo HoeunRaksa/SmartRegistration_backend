@@ -72,6 +72,10 @@ class Registration extends Model
         'payment_date' => 'datetime',
         'payment_amount' => 'decimal:2',
     ];
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'personal_email', 'email');
+    }
 
     public function department()
     {
