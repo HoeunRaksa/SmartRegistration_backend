@@ -50,4 +50,9 @@ class Course extends Model
 
         return implode(' — ', $parts);
     }
+
+    public function classSchedules()
+    {
+        return $this->hasMany(ClassSchedule::class, 'course_id');
+    }
 }
