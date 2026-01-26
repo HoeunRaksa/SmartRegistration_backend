@@ -6,7 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\UserSettingsController;
-use App\Http\Controllers\Api\StudentScheduleController;
+
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\MajorController;
@@ -16,15 +16,14 @@ use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\RegistrationReportController;
 use App\Http\Controllers\Api\AdminClassSessionController;
-use App\Http\Controllers\Api\StudentCalendarController;
-use App\Http\Controllers\Api\StudentDashboardController;
-use App\Http\Controllers\Api\StudentProfileController;
 use App\Http\Controllers\Api\StudentCourseController;
+use App\Http\Controllers\Api\StudentScheduleController;
 use App\Http\Controllers\Api\StudentGradeController;
 use App\Http\Controllers\Api\StudentAssignmentController;
 use App\Http\Controllers\Api\StudentAttendanceController;
 use App\Http\Controllers\Api\StudentMessageController;
-
+use App\Http\Controllers\Api\StudentCalendarController;
+use App\Http\Controllers\Api\StudentProfileController;
 use App\Http\Controllers\Api\AdminCourseController;
 use App\Http\Controllers\Api\AdminEnrollmentController;
 use App\Http\Controllers\Api\AdminGradeController;
@@ -41,6 +40,7 @@ use App\Http\Controllers\Api\StudentClassGroupController;
 use App\Http\Controllers\Api\AdminStudentSearchController;
 use App\Http\Controllers\Api\AdminEnrollmentLookupController;
 use App\Http\Controllers\Api\ChatController;
+
 use Illuminate\Support\Facades\Broadcast;
 
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
@@ -311,64 +311,38 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 | STUDENT ROUTES
 |--------------------------------------------------------------------------
 */
-
-
-
-
 Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(function () {
-    
-    // ==================== DASHBOARD ====================
-    // Get all dashboard data in one request (most efficient)
-    Route::get('/dashboard', [StudentDashboardController::class, 'getDashboard']);
-    
-    // ==================== PROFILE ====================
     Route::get('/profile', [StudentProfileController::class, 'getProfile']);
-    Route::put('/profile', [StudentProfileController::class, 'updateProfile']);
-    
-    // ==================== COURSES ====================
-    Route::prefix('courses')->group(function () {
-        Route::get('/enrolled', [StudentCourseController::class, 'getEnrolledCourses']);
-        Route::get('/available', [StudentCourseController::class, 'getAvailableCourses']);
-        Route::post('/enroll', [StudentCourseController::class, 'enrollCourse']);
-        Route::delete('/{courseId}/drop', [StudentCourseController::class, 'dropCourse']);
-    });
-    
-    // ==================== SCHEDULE ====================
-    Route::prefix('schedule')->group(function () {
-        Route::get('/', [StudentScheduleController::class, 'getSchedule']);
-        Route::get('/today', [StudentScheduleController::class, 'getTodaySchedule']);
-        Route::get('/week', [StudentScheduleController::class, 'getWeekSchedule']);
-        Route::get('/upcoming', [StudentScheduleController::class, 'getUpcoming']);
-        Route::get('/download', [StudentScheduleController::class, 'downloadSchedule']);
-    });
-    
-    // ==================== GRADES ====================
-    Route::prefix('grades')->group(function () {
-        Route::get('/', [StudentGradeController::class, 'getGrades']);
-        Route::get('/gpa', [StudentGradeController::class, 'getGpa']);
-        Route::get('/transcript', [StudentGradeController::class, 'getTranscript']); // Optional
-    });
-    
-    // ==================== ASSIGNMENTS ====================
-    Route::prefix('assignments')->group(function () {
-        Route::get('/', [StudentAssignmentController::class, 'getAssignments']);
-        Route::post('/submit', [StudentAssignmentController::class, 'submitAssignment']);
-        Route::get('/{assignmentId}', [StudentAssignmentController::class, 'getAssignment']);
-    });
-    
-    // ==================== ATTENDANCE ====================
-    Route::prefix('attendance')->group(function () {
-        Route::get('/', [StudentAttendanceController::class, 'getAttendance']);
-        Route::get('/stats', [StudentAttendanceController::class, 'getStats']);
-    });
-    
-    // ==================== MESSAGES ====================
-    Route::prefix('messages')->group(function () {
-        Route::get('/conversations', [StudentMessageController::class, 'getConversations']);
-        Route::get('/{conversationId}', [StudentMessageController::class, 'getMessages']);
-        Route::post('/send', [StudentMessageController::class, 'sendMessage']);
-        Route::put('/{messageId}/read', [StudentMessageController::class, 'markAsRead']); // Optional
-    });
+
+    // Courses
+    Route::get('/courses/enrolled', [StudentCourseController::class, 'getEnrolledCourses']);
+    Route::get('/courses/available', [StudentCourseController::class, 'getAvailableCourses']);
+    Route::post('/courses/enroll', [StudentCourseController::class, 'enrollCourse']);
+    Route::delete('/courses/{courseId}/drop', [StudentCourseController::class, 'dropCourse']);
+
+    // Schedule
+    Route::get('/schedule', [StudentScheduleController::class, 'getSchedule']);
+    Route::get('/schedule/today', [StudentScheduleController::class, 'getTodaySchedule']);
+    Route::get('/schedule/week', [StudentScheduleController::class, 'getWeekSchedule']);
+    Route::get('/schedule/upcoming', [StudentScheduleController::class, 'getUpcoming']);
+    Route::get('/schedule/download', [StudentScheduleController::class, 'downloadSchedule']);
+
+    // Grades
+    Route::get('/grades', [StudentGradeController::class, 'getGrades']);
+    Route::get('/grades/gpa', [StudentGradeController::class, 'getGpa']);
+
+    // Assignments
+    Route::get('/assignments', [StudentAssignmentController::class, 'getAssignments']);
+    Route::post('/assignments/submit', [StudentAssignmentController::class, 'submitAssignment']);
+
+    // Attendance
+    Route::get('/attendance', [StudentAttendanceController::class, 'getAttendance']);
+    Route::get('/attendance/stats', [StudentAttendanceController::class, 'getStats']);
+
+    // Messages
+    Route::get('/messages/conversations', [StudentMessageController::class, 'getConversations']);
+    Route::get('/messages/{conversationId}', [StudentMessageController::class, 'getMessages']);
+    Route::post('/messages/send', [StudentMessageController::class, 'sendMessage']);
 });
 
 /*
