@@ -24,25 +24,29 @@ class StudentDashboardController extends Controller
      */
     public function getDashboard(Request $request)
     {
-        Log::info('DASHBOARD AUTH', [
-            'auth_id' => auth()->id(),
-            'auth_role' => auth()->user()?->role,
-            'auth_email' => auth()->user()?->email,
-        ]);
-
         try {
             $user = $request->user();
 
             if (!$user) {
+                Log::warning('Dashboard: No authenticated user');
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
                 ], 401);
             }
 
-            $student = Student::where('user_id', $user->id)->first();
+            Log::info('Dashboard request', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'role' => $user->role,
+            ]);
+
+            $student = Student::where('user_id', $user->id)
+                ->with(['user', 'department'])
+                ->first();
 
             if (!$student) {
+                Log::warning('Dashboard: Student profile not found', ['user_id' => $user->id]);
                 return response()->json([
                     'success' => false,
                     'message' => 'Student profile not found',
@@ -58,16 +62,22 @@ class StudentDashboardController extends Controller
             $attendanceStats = $this->getAttendanceStatsData($student);
             $conversations = $this->getConversationsData($user);
 
+            // ✅ Safe profile picture URL
+            $profilePictureUrl = null;
+            if ($student->user && $student->user->profile_picture_path) {
+                $profilePictureUrl = url($student->user->profile_picture_path);
+            }
+
             return response()->json([
                 'success' => true,
                 'data' => [
                     'student' => [
-                        'name' => $user->name,
-                        'email' => $user->email,
-                        'student_code' => $student->student_code,
+                        'name' => $user->name ?? 'Student',
+                        'email' => $user->email ?? '',
+                        'student_code' => $student->student_code ?? 'N/A',
                         'major' => $student->department?->department_name ?? 'N/A',
                         'year' => $student->generation ?? 'N/A',
-                        'profile_picture_url' => $student->profile_picture_url,
+                        'profile_picture_url' => $profilePictureUrl,
                     ],
                     'stats' => [
                         'gpa' => $gpa,
@@ -184,7 +194,6 @@ class StudentDashboardController extends Controller
             return $grades->map(function ($grade) {
                 $subject = $grade->course?->majorSubject?->subject;
 
-                // Handle created_at - could be Carbon instance or string
                 $createdAt = $grade->created_at;
                 if ($createdAt instanceof \Carbon\Carbon) {
                     $createdAtFormatted = $createdAt->toISOString();
@@ -248,7 +257,6 @@ class StudentDashboardController extends Controller
             return $assignments->map(function ($assignment) {
                 $subject = $assignment->course?->majorSubject?->subject;
 
-                // Handle due_date - could be Carbon instance or string
                 $dueDate = $assignment->due_date;
                 if ($dueDate instanceof \Carbon\Carbon) {
                     $dueDateFormatted = $dueDate->format('Y-m-d');
