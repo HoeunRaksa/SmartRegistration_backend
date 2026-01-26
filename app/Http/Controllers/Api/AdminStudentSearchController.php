@@ -55,26 +55,27 @@ class AdminStudentSearchController extends Controller
                 });
             }
 
-            // ✅ FILTER 3: Class Group ID (ONLY if explicitly provided)
-            // This is the ONLY restrictive class group filter
-            if (!empty($classGroupId)) {
-                $studentsQ->whereHas('classGroups', function ($cg) use ($classGroupId, $academicYear, $semester) {
-                    $cg->where('student_class_groups.class_group_id', $classGroupId);
-                    
-                    // Apply period filters only if class_group_id is set
+            // ✅ FILTER 3: Academic Year + Semester + Class Group + Shift
+            // Build conditions for class group filtering
+            $hasClassGroupFilters = !empty($academicYear) || !empty($semester) || !empty($classGroupId) || !empty($shift);
+
+            if ($hasClassGroupFilters) {
+                $studentsQ->whereHas('classGroups', function ($cg) use ($academicYear, $semester, $classGroupId, $shift) {
+                    // Filter by pivot table columns (academic_year, semester)
                     if (!empty($academicYear)) {
                         $cg->where('student_class_groups.academic_year', $academicYear);
                     }
                     if (!empty($semester)) {
                         $cg->where('student_class_groups.semester', (int)$semester);
                     }
-                });
-            }
 
-            // ✅ FILTER 4: Shift (ONLY if explicitly provided)
-            if (!empty($shift)) {
-                $studentsQ->whereHas('classGroups', function ($cg) use ($shift) {
-                    $cg->where('class_groups.shift', $shift);
+                    // Filter by class_groups table columns (id, shift)
+                    if (!empty($classGroupId)) {
+                        $cg->where('class_groups.id', $classGroupId);
+                    }
+                    if (!empty($shift)) {
+                        $cg->where('class_groups.shift', $shift);
+                    }
                 });
             }
 
