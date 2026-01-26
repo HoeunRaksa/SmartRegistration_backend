@@ -362,6 +362,15 @@ Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(fu
     Route::get('/messages/unread-count', [StudentMessageController::class, 'getUnreadCount']);
     Route::get('/messages/{userId}', [StudentMessageController::class, 'getMessages']);
     Route::post('/messages/send', [StudentMessageController::class, 'sendMessage']);
+
+    // Calendar
+    Route::get('/calendar', [StudentCalendarController::class, 'index']);
+    Route::get('/calendar/range', [StudentCalendarController::class, 'getRange']);
+    Route::get('/calendar/today', [StudentCalendarController::class, 'getToday']);
+    Route::get('/calendar/week', [StudentCalendarController::class, 'getWeek']);
+    Route::get('/calendar/month', [StudentCalendarController::class, 'getMonth']);
+    Route::get('/calendar/upcoming', [StudentCalendarController::class, 'getUpcoming']);
+    Route::get('/calendar/date/{date}', [StudentCalendarController::class, 'getByDate']);
 });
 
 /*
