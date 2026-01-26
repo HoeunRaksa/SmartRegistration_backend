@@ -6,7 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\UserSettingsController;
-
+use App\Http\Controllers\Api\StudentScheduleController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\MajorController;
@@ -20,7 +20,6 @@ use App\Http\Controllers\Api\StudentCalendarController;
 use App\Http\Controllers\Api\StudentDashboardController;
 use App\Http\Controllers\Api\StudentProfileController;
 use App\Http\Controllers\Api\StudentCourseController;
-use App\Http\Controllers\Api\StudentScheduleController;
 use App\Http\Controllers\Api\StudentGradeController;
 use App\Http\Controllers\Api\StudentAssignmentController;
 use App\Http\Controllers\Api\StudentAttendanceController;
