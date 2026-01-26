@@ -10,7 +10,7 @@ use App\Models\Course;
 use App\Models\CourseEnrollment;
 use App\Models\ClassSchedule;
 use App\Models\Assignment;
-use App\Models\AssignmentSubmission;
+ use App\Models\AssignmentSubmission;
 use App\Models\Grade;
 use App\Models\AttendanceRecord;
 use App\Models\Message;
