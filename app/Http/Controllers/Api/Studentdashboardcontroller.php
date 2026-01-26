@@ -43,7 +43,7 @@ class StudentDashboardController extends Controller
                 ], 404);
             }
 
-            // Get all data
+             // Get all data
             $enrolledCourses = $this->getEnrolledCoursesData($student);
             $todaySchedule = $this->getTodayScheduleData($student);
             $grades = $this->getGradesData($student);
