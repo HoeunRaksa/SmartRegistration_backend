@@ -56,23 +56,27 @@ class AdminStudentSearchController extends Controller
                 });
             }
 
-            // ✅ FILTER 3: Class Group + Academic Year + Semester (via pivot table)
-            // These filters must work together through student_class_groups
-            if (!empty($classGroupId) || !empty($academicYear) || !empty($semester)) {
-                // Use a subquery approach for better performance and accuracy
-                $pivotQuery = StudentClassGroup::query()->select('student_id');
-
-                if (!empty($classGroupId)) {
-                    $pivotQuery->where('class_group_id', $classGroupId);
-                }
-                if (!empty($academicYear)) {
-                    $pivotQuery->where('academic_year', $academicYear);
-                }
-                if (!empty($semester)) {
-                    $pivotQuery->where('semester', (int)$semester);
-                }
-
-                $studentsQ->whereIn('students.id', $pivotQuery);
+            // ✅ FILTER 3: Academic Year + Semester (via pivot table)
+            // Only apply if at least academic_year or semester is provided
+            // This allows broader search while still filtering by period when needed
+            if (!empty($academicYear) || !empty($semester)) {
+                $studentsQ->whereHas('classGroups', function ($cg) use ($academicYear, $semester, $classGroupId) {
+                    // Apply pivot table filters
+                    if (!empty($academicYear)) {
+                        $cg->where('student_class_groups.academic_year', $academicYear);
+                    }
+                    if (!empty($semester)) {
+                        $cg->where('student_class_groups.semester', (int)$semester);
+                    }
+                    if (!empty($classGroupId)) {
+                        $cg->where('student_class_groups.class_group_id', $classGroupId);
+                    }
+                });
+            } elseif (!empty($classGroupId)) {
+                // If only class_group_id is provided without year/semester
+                $studentsQ->whereHas('classGroups', function ($cg) use ($classGroupId) {
+                    $cg->where('student_class_groups.class_group_id', $classGroupId);
+                });
             }
 
             // ✅ FILTER 4: Shift (from class_groups table via pivot)
