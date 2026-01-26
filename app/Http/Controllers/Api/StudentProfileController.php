@@ -1,192 +1,88 @@
 <?php
- 
+
 namespace App\Http\Controllers\Api;
- 
+
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
 use App\Models\Student;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
- 
+
 class StudentProfileController extends Controller
 {
-    /**
-     * Get student profile
-     * GET /api/student/profile
-     */
     public function getProfile(Request $request)
     {
         try {
             $user = $request->user();
-            $student = Student::where('user_id', $user->id)
-                ->with(['user', 'department', 'registration.major'])
-                ->first();
- 
-            if (!$student) {
-                return response()->json([
-                    'error' => true,
-                    'message' => 'Student profile not found',
-                ], 404);
-            }
- 
-            // ✅ FIX: Ensure profile_picture_url is properly calculated
-            $profilePictureUrl = null;
-            if ($student->user && $student->user->profile_picture_path) {
-                $profilePictureUrl = url($student->user->profile_picture_path);
-            }
- 
-            $profile = [
+
+            $student = Student::with([
+                    'department',
+                    'registration',
+                    'user',
+                ])
+                ->where('user_id', $user->id)
+                ->firstOrFail();
+
+            // Build a clean response shape for frontend (avoid blanks)
+            $data = [
                 'id' => $student->id,
                 'student_code' => $student->student_code,
+
+                // Names from students table (your model has full_name_kh/full_name_en)
                 'full_name_kh' => $student->full_name_kh,
                 'full_name_en' => $student->full_name_en,
+
+                // Keep a generic "name" for UI
+                'name' => $student->full_name_en ?: $student->full_name_kh ?: ($student->user->name ?? null),
+
+                // Email from users table
+                'email' => $student->user->email ?? null,
+
+                // Phone + address from students table
+                'phone' => $student->phone_number,
+                'phone_number' => $student->phone_number,
+                'address' => $student->address,
+
                 'date_of_birth' => $student->date_of_birth,
                 'gender' => $student->gender,
                 'nationality' => $student->nationality,
-                'phone_number' => $student->phone_number,
-                'address' => $student->address,
+
                 'generation' => $student->generation,
+
+                // Parent fields (your model uses parent_name/parent_phone)
                 'parent_name' => $student->parent_name,
                 'parent_phone' => $student->parent_phone,
-                'profile_picture_url' => $profilePictureUrl, // ✅ Fixed
- 
-                // User information
-                'email' => $user->email,
-                'name' => $user->name,
-                'role' => $user->role,
- 
-                // Department information
-                'department' => [
-                    'id' => $student->department?->id,
-                    'name' => $student->department?->department_name,
-                    'code' => $student->department?->department_code,
-                ],
- 
-                // Registration information
-                'registration' => [
-                    'id' => $student->registration?->id,
-                    'academic_year' => $student->registration?->academic_year,
-                    'semester' => $student->registration?->semester,
-                    'status' => $student->registration?->status,
-                    'major' => [
-                        'id' => $student->registration?->major?->id,
-                        'name' => $student->registration?->major?->major_name,
-                        'code' => $student->registration?->major?->major_code,
-                    ],
-                ],
+
+                // profile picture accessor already appended
+                'profile_picture_url' => $student->profile_picture_url,
+
+                // Department relation
+                'department_id' => $student->department_id,
+                'department' => $student->department?->department_name ?? $student->department?->name ?? null,
+
+                // Registration relation (some data comes from registration)
+                'registration_id' => $student->registration_id,
+                'registration' => $student->registration, // optional full object
+
+                // If you have these columns later, keep them (avoid breaking UI)
+                'major' => $student->registration?->major?->major_name
+                    ?? $student->registration?->major_name
+                    ?? null,
+
+                // Optional placeholders (if your DB doesn’t have them yet)
+                'year' => null,
+                'semester' => null,
+                'academic_status' => 'Active',
+
+                // GPA/credits placeholders (real GPA should come from /student/grades/gpa)
+                'current_gpa' => null,
+                'cumulative_gpa' => null,
+                'credits_earned' => 0,
             ];
- 
-            return response()->json([
-                'success' => true,
-                'data' => $profile
-            ]);
- 
-        } catch (\Exception $e) {
-            Log::error('Error fetching student profile: ' . $e->getMessage());
-            return response()->json([
-                'error' => true,
-                'message' => 'Failed to fetch profile',
-            ], 500);
-        }
-    }
- 
-    /**
-     * Update student profile
-     * PUT /api/student/profile
-     */
-    public function updateProfile(Request $request)
-    {
-        try {
-            $user = $request->user();
-            $student = Student::where('user_id', $user->id)->with('user')->first();
- 
-            if (!$student) {
-                return response()->json([
-                    'error' => true,
-                    'message' => 'Student profile not found',
-                ], 404);
-            }
- 
-            $validator = Validator::make($request->all(), [
-                'phone_number' => 'nullable|string|max:20',
-                'address' => 'nullable|string|max:500',
-                'parent_name' => 'nullable|string|max:255',
-                'parent_phone' => 'nullable|string|max:20',
-                'profile_picture' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
-            ]);
- 
-            if ($validator->fails()) {
-                return response()->json([
-                    'error' => true,
-                    'message' => 'Validation failed',
-                    'errors' => $validator->errors(),
-                ], 422);
-            }
- 
-            // Update allowed fields on Student model
-            $student->phone_number = $request->input('phone_number', $student->phone_number);
-            $student->address = $request->input('address', $student->address);
-            $student->parent_name = $request->input('parent_name', $student->parent_name);
-            $student->parent_phone = $request->input('parent_phone', $student->parent_phone);
- 
-            // ✅ FIX: Handle profile picture upload - store on User model, not Student
-            if ($request->hasFile('profile_picture')) {
-                if (!$student->user) {
-                    return response()->json([
-                        'error' => true,
-                        'message' => 'User account not found',
-                    ], 404);
-                }
- 
-                // Delete old picture if exists
-                if ($student->user->profile_picture_path) {
-                    // Remove 'public/' prefix if present for storage deletion
-                    $oldPath = str_replace('public/', '', $student->user->profile_picture_path);
-                    if (Storage::disk('public')->exists($oldPath)) {
-                        Storage::disk('public')->delete($oldPath);
-                    }
-                }
- 
-                // Store new picture
-                $file = $request->file('profile_picture');
-                $filename = 'profile_' . $student->user->id . '_' . time() . '.' . $file->getClientOriginalExtension();
-                $path = $file->storeAs('profiles', $filename, 'public');
- 
-                // Store as 'storage/profiles/filename.jpg' format for public access
-                $student->user->profile_picture_path = 'storage/' . $path;
-                $student->user->save();
-            }
- 
-            $student->save();
- 
-            // ✅ FIX: Return properly calculated profile_picture_url
-            $profilePictureUrl = null;
-            if ($student->user && $student->user->profile_picture_path) {
-                $profilePictureUrl = url($student->user->profile_picture_path);
-            }
- 
-            return response()->json([
-                'success' => true,
-                'message' => 'Profile updated successfully',
-                'data' => [
-                    'phone_number' => $student->phone_number,
-                    'address' => $student->address,
-                    'parent_name' => $student->parent_name,
-                    'parent_phone' => $student->parent_phone,
-                    'profile_picture_url' => $profilePictureUrl, // ✅ Fixed
-                ]
-            ]);
- 
-        } catch (\Exception $e) {
-            Log::error('Error updating student profile: ' . $e->getMessage(), [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            return response()->json([
-                'error' => true,
-                'message' => 'Failed to update profile',
-            ], 500);
+
+            return response()->json(['data' => $data], 200);
+        } catch (\Throwable $e) {
+            Log::error('StudentProfileController@getProfile error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to load student profile'], 500);
         }
     }
 }
