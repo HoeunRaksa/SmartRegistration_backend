@@ -13,10 +13,7 @@ use Illuminate\Support\Facades\Hash;
 
 class StudentProfileController extends Controller
 {
-    /**
-     * Get student profile
-     * GET /api/student/profile
-     */
+   
     public function getProfile(Request $request)
     {
         try {
