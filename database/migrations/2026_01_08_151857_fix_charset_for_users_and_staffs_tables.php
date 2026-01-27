@@ -10,6 +10,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         // Convert users table to utf8mb4
         DB::statement('ALTER TABLE users CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
         
@@ -27,6 +31,10 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         // Revert back to utf8 if needed (optional)
         DB::statement('ALTER TABLE users CONVERT TO CHARACTER SET utf8 COLLATE utf8_unicode_ci');
         DB::statement('ALTER TABLE staffs CONVERT TO CHARACTER SET utf8 COLLATE utf8_unicode_ci');

@@ -54,6 +54,8 @@ use App\Http\Controllers\Api\BulkEnrollmentController;
 use App\Http\Controllers\Api\BulkGradeController;
 use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\PasswordResetController;
+use App\Http\Controllers\Api\ProjectGroupController;
+use App\Http\Controllers\Api\FriendRequestController;
 
 use Illuminate\Support\Facades\Broadcast;
 
@@ -148,8 +150,19 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('/teachers/{id}', [TeacherController::class, 'destroy']);
 
     Route::get('/chat/{userId}', [ChatController::class, 'index']);
+    // Filtered by social logic
     Route::get('/conversations', [ChatController::class, 'conversations']);
     Route::post('/chat/{userId}', [ChatController::class, 'store']);
+
+    // Friend Requests
+    Route::prefix('social')->group(function () {
+        Route::get('/students/search', [FriendRequestController::class, 'searchStudents']);
+        Route::post('/friend-requests', [FriendRequestController::class, 'sendRequest']);
+        Route::post('/friend-requests/{id}/accept', [FriendRequestController::class, 'acceptRequest']);
+    });
+
+    // Project Groups (Common View)
+    Route::get('/project-groups', [ProjectGroupController::class, 'index']);
 });
 
 /*

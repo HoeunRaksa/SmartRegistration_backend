@@ -12,11 +12,20 @@ class AdminGradeController extends Controller
     /**
      * GET /api/admin/grades
      */
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $grades = Grade::with(['student', 'course'])
-                ->orderByDesc('id')
+            $query = Grade::with(['student', 'course']);
+
+            if ($request->filled('course_id')) {
+                $query->where('course_id', $request->course_id);
+            }
+
+            if ($request->filled('student_id')) {
+                $query->where('student_id', $request->student_id);
+            }
+
+            $grades = $query->orderByDesc('id')
                 ->get()
                 ->map(function ($g) {
                     return [

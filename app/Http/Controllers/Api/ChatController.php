@@ -123,7 +123,25 @@ class ChatController extends Controller
             ->pluck('cnt', 'partner_id');
 
         // 4) Merge into one list for your UI
-        $data = $allUsers->map(function ($u) use ($lastMessages, $unreadCounts) {
+        $data = $allUsers->filter(function ($u) use ($me) {
+            $myStudent = \App\Models\Student::where('user_id', $me)->first();
+            $targetStudent = \App\Models\Student::where('user_id', $u->id)->first();
+
+            if (!$myStudent || !$targetStudent) return true; // Keep staff/admin/etc
+
+            $myClassIds = \App\Models\StudentClassGroup::where('student_id', $myStudent->id)->pluck('class_group_id')->toArray();
+            $targetClassIds = \App\Models\StudentClassGroup::where('student_id', $targetStudent->id)->pluck('class_group_id')->toArray();
+            
+            $sameGroup = !empty(array_intersect($myClassIds, $targetClassIds));
+            
+            $isFriend = \App\Models\FriendRequest::where('status', 'accepted')
+                ->where(function($q) use ($myStudent, $targetStudent) {
+                    $q->where('sender_id', $myStudent->id)->where('receiver_id', $targetStudent->id)
+                      ->orWhere('sender_id', $targetStudent->id)->where('receiver_id', $myStudent->id);
+                })->exists();
+
+            return $sameGroup || $isFriend;
+        })->map(function ($u) use ($lastMessages, $unreadCounts) {
             $last = $lastMessages[$u->id] ?? null;
 
             return [
