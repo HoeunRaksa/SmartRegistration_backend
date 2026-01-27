@@ -175,7 +175,9 @@ class StudentGradeController extends Controller
     public function getTranscript(Request $request)
     {
         try {
-            $student = Student::where('user_id', $request->user()->id)->firstOrFail();
+            $student = Student::where('user_id', $request->user()->id)
+                ->with(['major.department'])
+                ->firstOrFail();
 
             $grades = Grade::with(['course.majorSubject.subject'])
                 ->where('student_id', $student->id)
@@ -183,7 +185,7 @@ class StudentGradeController extends Controller
                 ->get();
 
             // Group by semester/academic year
-            $transcript = $grades->groupBy(function ($grade) {
+            $groupedGrades = $grades->groupBy(function ($grade) {
                 $course = $grade->course;
                 return ($course->academic_year ?? 'Unknown') . ' - Semester ' . ($course->semester ?? '?');
             })->map(function ($semesterGrades, $period) {
@@ -214,7 +216,25 @@ class StudentGradeController extends Controller
                 ];
             })->values();
 
-            return response()->json(['data' => $transcript], 200);
+            // Total Stats
+            $totalCredits = $groupedGrades->sum('total_credits');
+            $totalWeighted = $groupedGrades->sum(fn($g) => $g['semester_gpa'] * $g['total_credits']);
+            $cgpa = $totalCredits > 0 ? round($totalWeighted / $totalCredits, 2) : 0;
+
+            $data = [
+                'student' => $student,
+                'transcript' => $groupedGrades,
+                'cgpa' => $cgpa,
+                'total_credits' => $totalCredits,
+                'generated_at' => now()->format('Y-m-d H:i:s'),
+            ];
+
+            if ($request->download === 'pdf') {
+                $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.transcript', $data);
+                return $pdf->download("transcript_{$student->student_code}.pdf");
+            }
+
+            return response()->json(['data' => $data], 200);
         } catch (\Throwable $e) {
             Log::error('StudentGradeController@getTranscript error: ' . $e->getMessage());
             return response()->json(['message' => 'Failed to load transcript'], 500);

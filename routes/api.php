@@ -420,6 +420,11 @@ Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(fu
     // Notification Preferences
     Route::get('/notification-preferences', [NotificationPreferenceController::class, 'index']);
     Route::put('/notification-preferences', [NotificationPreferenceController::class, 'update']);
+
+    // Certificate Requests
+    Route::get('/certificate-requests', [CertificateRequestController::class, 'index']);
+    Route::post('/certificate-requests', [CertificateRequestController::class, 'store']);
+    Route::get('/certificate-requests/{id}', [CertificateRequestController::class, 'show']);
 });
 
 /*

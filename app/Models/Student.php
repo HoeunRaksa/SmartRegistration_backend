@@ -86,4 +86,34 @@ class Student extends Model
             ->wherePivot('semester', $semester)
             ->first();
     }
+
+    public function major()
+    {
+        return $this->belongsTo(Major::class);
+    }
+
+    public function grades()
+    {
+        return $this->hasMany(Grade::class);
+    }
+
+    public function attendance()
+    {
+        return $this->hasMany(AttendanceRecord::class);
+    }
+
+    public function enrollments()
+    {
+        return $this->hasMany(CourseEnrollment::class);
+    }
+
+    public function submissions()
+    {
+        return $this->hasMany(AssignmentSubmission::class);
+    }
+
+    public function certificateRequests()
+    {
+        return $this->hasMany(CertificateRequest::class);
+    }
 }
