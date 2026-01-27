@@ -24,7 +24,7 @@ class AdminDashboardController extends Controller
             $totalStudents = Student::count();
             $totalCourses = Course::count();
             $totalDepartments = Department::count();
-            $pendingRegistrations = Registration::where('status', 'pending')->count();
+            $pendingRegistrations = Registration::where('payment_status', 'pending')->count();
 
             // Enrollment Trend - Use fallback data if query fails
             $enrollmentTrend = [];
