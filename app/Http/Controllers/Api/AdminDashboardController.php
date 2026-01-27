@@ -33,14 +33,24 @@ class AdminDashboardController extends Controller
                 ? round((($totalStudents - $lastMonthStudents) / $lastMonthStudents) * 100, 1) 
                 : 100;
 
-            // 3. Gender Distribution
-            $genderData = Student::select('gender', DB::raw('count(*) as total'))
-                ->groupBy('gender')
+            // 3. Gender Distribution - Normalized
+            $genderData = Student::select(
+                DB::raw('LOWER(gender) as raw_gender'),
+                DB::raw('count(*) as total')
+            )
+                ->groupBy('raw_gender')
                 ->get()
                 ->map(fn($item) => [
-                    'name' => $item->gender == 'female' ? 'Female' : 'Male',
+                    'name' => str_contains($item->raw_gender, 'f') ? 'Female' : 'Male',
                     'value' => $item->total
-                ]);
+                ])
+                // Merge if multiple mappings result in same name (e.g. 'm' and 'male')
+                ->groupBy('name')
+                ->map(fn($group, $name) => [
+                    'name' => $name,
+                    'value' => $group->sum('value')
+                ])
+                ->values();
 
             // 4. Revenue by Department
             $revenueByDept = Department::select('departments.name', DB::raw('SUM(registrations.payment_amount) as total_revenue'))
