@@ -66,7 +66,7 @@ class AdminDashboardController extends Controller
                 ->limit(5)
                 ->get()
                 ->map(fn($major) => [
-                    'name' => $major->name,
+                    'name' => $major->major_name,
                     'count' => $major->registrations_count
                 ]);
 
