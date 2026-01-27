@@ -39,7 +39,7 @@ public function index(Request $request)
                 $instructor = $course->teacher?->name ?? 
                              $course->teacher?->full_name ?? 
                              $course->instructor ?? 
-                             'N/A';
+                             '';
 
                 // ✅ Build room display info
                 $roomDisplay = null;
@@ -518,7 +518,7 @@ private function formatScheduleResponse($schedule)
         'instructor' => $course->teacher?->name ?? 
                        $course->teacher?->full_name ?? 
                        $course->instructor ?? 
-                       'N/A',
+                       '',
         'shift' => $course->classGroup?->shift ?? null,
         'class_name' => $course->classGroup?->class_name ?? null,
         'day_of_week' => $schedule->day_of_week,

@@ -31,8 +31,8 @@ class TeacherCourseController extends Controller
                     $subject = $course->majorSubject?->subject;
                     return [
                         'id' => $course->id,
-                        'name' => $subject?->subject_name ?? 'N/A',
-                        'code' => $subject?->subject_code ?? 'N/A',
+                        'name' => $subject?->subject_name ?? '',
+                        'code' => $subject?->subject_code ?? '',
                         'students' => $course->enrollments_count,
                         'semester' => $course->semester,
                         'academic_year' => $course->academic_year,

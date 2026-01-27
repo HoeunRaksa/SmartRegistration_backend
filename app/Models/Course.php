@@ -38,7 +38,7 @@ class Course extends Model
 
     public function getDisplayNameAttribute(): string
     {
-        $subjectName = $this->majorSubject?->subject?->subject_name ?? 'N/A Subject';
+        $subjectName = $this->majorSubject?->subject?->subject_name ?? 'Untitled Course';
         $className   = $this->classGroup?->class_name ?? null;
         $year = $this->academic_year ?? null;
         $sem  = $this->semester ? 'Sem ' . $this->semester : null;

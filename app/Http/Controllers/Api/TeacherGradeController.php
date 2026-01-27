@@ -28,7 +28,7 @@ class TeacherGradeController extends Controller
                     return [
                         'id' => $g->id,
                         'student_name' => $g->student?->full_name,
-                        'course_name' => $g->course?->majorSubject?->subject?->subject_name,
+                        'course_name' => $g->course?->majorSubject?->subject?->subject_name ?? '',
                         'assignment' => $g->assignment_name,
                         'score' => $g->score,
                         'total_points' => $g->total_points,

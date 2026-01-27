@@ -27,12 +27,12 @@ class TeacherScheduleController extends Controller
                 ->map(function($s) {
                     return [
                         'id' => $s->id,
-                        'course_name' => $s->course?->majorSubject?->subject?->subject_name,
-                        'course_code' => $s->course?->majorSubject?->subject?->subject_code,
+                        'course_name' => $s->course?->majorSubject?->subject?->subject_name ?? '',
+                        'course_code' => $s->course?->majorSubject?->subject?->subject_code ?? '',
                         'day_of_week' => $s->day_of_week,
                         'start_time' => $s->start_time,
                         'end_time' => $s->end_time,
-                        'room' => ($s->roomRef?->building?->building_name ?? 'N/A') . ' - ' . ($s->roomRef?->room_number ?? $s->room ?? 'N/A'),
+                        'room' => ($s->roomRef?->building?->building_name ?? '') . ' - ' . ($s->roomRef?->room_number ?? $s->room ?? ''),
                     ];
                 });
 

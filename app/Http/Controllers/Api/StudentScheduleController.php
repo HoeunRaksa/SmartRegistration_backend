@@ -342,19 +342,19 @@ class StudentScheduleController extends Controller
             'id' => $schedule->id,
             'course' => [
                 'id' => $course->id,
-                'course_code' => $subject?->subject_code ?? 'N/A',
-                'code' => $subject?->subject_code ?? 'N/A',
-                'course_name' => $subject?->subject_name ?? 'N/A',
-                'title' => $subject?->subject_name ?? 'N/A',
-                'instructor_name' => $teacher?->user?->name ?? 'N/A',
-                'instructor' => $teacher?->user?->name ?? 'N/A',
+                'course_code' => $subject?->subject_code ?? '',
+                'code' => $subject?->subject_code ?? '',
+                'course_name' => $subject?->subject_name ?? '',
+                'title' => $subject?->subject_name ?? '',
+                'instructor_name' => $teacher?->user?->name ?? 'None',
+                'instructor' => $teacher?->user?->name ?? 'None',
             ],
             'day_of_week' => $schedule->day_of_week,
             'start_time' => $schedule->start_time,
             'end_time' => $schedule->end_time,
             'room' => $room 
                 ? $room->room_number . ' (' . ($room->building?->building_name ?? '') . ')' 
-                : ($schedule->room ?? 'N/A'),
+                : ($schedule->room ?? ''),
             'session_type' => $schedule->session_type,
         ];
     }
