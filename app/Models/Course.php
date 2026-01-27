@@ -55,4 +55,19 @@ class Course extends Model
     {
         return $this->hasMany(ClassSchedule::class, 'course_id');
     }
+
+    public function enrollments()
+    {
+        return $this->hasMany(CourseEnrollment::class, 'course_id');
+    }
+
+    public function assignments()
+    {
+        return $this->hasMany(Assignment::class, 'course_id');
+    }
+
+    public function grades()
+    {
+        return $this->hasMany(Grade::class, 'course_id');
+    }
 }
