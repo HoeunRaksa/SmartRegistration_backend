@@ -18,6 +18,11 @@ class Student extends Model
         return $this->user?->profile_picture_url;
     }
 
+    public function getFullNameAttribute()
+    {
+        return $this->full_name_en ?: $this->full_name_kh;
+    }
+
 
 
 

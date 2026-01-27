@@ -21,7 +21,7 @@ class TeacherScheduleController extends Controller
             $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
 
-            $schedules = ClassSchedule::with(['course.majorSubject.subject', 'room.building'])
+            $schedules = ClassSchedule::with(['course.majorSubject.subject', 'roomRef.building'])
                 ->whereIn('course_id', $courseIds)
                 ->get()
                 ->map(function($s) {
@@ -32,7 +32,7 @@ class TeacherScheduleController extends Controller
                         'day_of_week' => $s->day_of_week,
                         'start_time' => $s->start_time,
                         'end_time' => $s->end_time,
-                        'room' => ($s->room?->building?->name ?? 'N/A') . ' - ' . ($s->room?->room_number ?? 'N/A'),
+                        'room' => ($s->roomRef?->building?->building_name ?? 'N/A') . ' - ' . ($s->roomRef?->room_number ?? $s->room ?? 'N/A'),
                     ];
                 });
 

@@ -22,7 +22,7 @@ class TeacherCourseController extends Controller
             $courses = Course::with([
                     'majorSubject.subject',
                     'classGroup',
-                    'classSchedules.room.building'
+                    'classSchedules.roomRef.building'
                 ])
                 ->withCount('enrollments')
                 ->where('teacher_id', $teacher->id)
@@ -41,7 +41,7 @@ class TeacherCourseController extends Controller
                             return [
                                 'day_of_week' => $s->day_of_week,
                                 'time' => $s->start_time . ' - ' . $s->end_time,
-                                'room' => ($s->room?->building?->name ?? '') . ' ' . ($s->room?->room_number ?? '')
+                                'room' => ($s->roomRef?->building?->building_name ?? '') . ' ' . ($s->roomRef?->room_number ?? $s->room ?? '')
                             ];
                         }),
                         'color' => 'from-blue-500 to-cyan-500' // Consistent fallback UI
@@ -67,7 +67,7 @@ class TeacherCourseController extends Controller
             $course = Course::with([
                     'majorSubject.subject',
                     'classGroup',
-                    'classSchedules.room.building',
+                    'classSchedules.roomRef.building',
                     'enrollments.student.user'
                 ])
                 ->where('teacher_id', $teacher->id)
@@ -100,7 +100,7 @@ class TeacherCourseController extends Controller
                     return [
                         'id' => $e->student->id,
                         'name' => $e->student->full_name,
-                        'student_id' => $e->student->student_id_card,
+                        'student_id' => $e->student->student_code,
                         'email' => $e->student->user?->email,
                     ];
                 });

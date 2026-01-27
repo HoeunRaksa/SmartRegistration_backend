@@ -125,7 +125,7 @@ class TeacherAssignmentController extends Controller
                     return [
                         'id' => $s->id,
                         'student_name' => $s->student?->full_name,
-                        'student_id_code' => $s->student?->student_id_card,
+                        'student_id_code' => $s->student?->student_code,
                         'submitted_at' => $s->submitted_at?->toDateTimeString(),
                         'status' => $s->status,
                         'score' => $s->score,

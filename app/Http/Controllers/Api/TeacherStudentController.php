@@ -35,7 +35,7 @@ class TeacherStudentController extends Controller
                         'id' => $s->id,
                         'full_name' => $s->full_name,
                         'email' => $s->user?->email,
-                        'student_id_card' => $s->student_id_card,
+                        'student_id_card' => $s->student_code,
                         'department' => $s->department?->name,
                         'status' => 'active',
                         'profile_picture_url' => $s->user?->profile_picture_url,
