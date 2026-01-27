@@ -41,6 +41,13 @@ use App\Http\Controllers\Api\StudentClassGroupController;
 use App\Http\Controllers\Api\AdminStudentSearchController;
 use App\Http\Controllers\Api\AdminEnrollmentLookupController;
 use App\Http\Controllers\Api\ChatController;
+use App\Http\Controllers\Api\TeacherDashboardController;
+use App\Http\Controllers\Api\TeacherCourseController;
+use App\Http\Controllers\Api\TeacherStudentController;
+use App\Http\Controllers\Api\TeacherGradeController;
+use App\Http\Controllers\Api\TeacherAttendanceController;
+use App\Http\Controllers\Api\TeacherAssignmentController;
+use App\Http\Controllers\Api\TeacherScheduleController;
 
 use Illuminate\Support\Facades\Broadcast;
 
