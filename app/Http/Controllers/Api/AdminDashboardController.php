@@ -8,6 +8,7 @@ use App\Models\Course;
 use App\Models\Department;
 use App\Models\Registration;
 use App\Models\AttendanceRecord;
+use App\Models\ClassSession;
 use App\Models\Grade;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
