@@ -112,8 +112,8 @@ class AdminDashboardController extends Controller
 
             // 10. Advanced Analytics (3D Data)
             $advancedStats = Registration::select(
-                DB::raw('YEAR(created_at) as year'),
-                DB::raw('MONTH(created_at) as month'),
+                DB::raw('YEAR(registrations.created_at) as year'),
+                DB::raw('MONTH(registrations.created_at) as month'),
                 'departments.name as dept_name',
                 'majors.name as major_name',
                 DB::raw('count(*) as student_count'),
