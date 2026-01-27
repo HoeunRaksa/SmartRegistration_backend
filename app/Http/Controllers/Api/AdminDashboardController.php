@@ -110,6 +110,23 @@ class AdminDashboardController extends Controller
                 ['label' => 'Cloud Storage', 'status' => '98% Free', 'color' => 'green'],
             ];
 
+            // 10. Advanced Analytics (3D Data)
+            $advancedStats = Registration::select(
+                DB::raw('YEAR(created_at) as year'),
+                DB::raw('MONTH(created_at) as month'),
+                'departments.name as dept_name',
+                'majors.name as major_name',
+                DB::raw('count(*) as student_count'),
+                DB::raw('sum(payment_amount) as revenue')
+            )
+            ->join('departments', 'registrations.department_id', '=', 'departments.id')
+            ->join('majors', 'registrations.major_id', '=', 'majors.id')
+            ->where('payment_status', 'paid')
+            ->groupBy('year', 'month', 'dept_name', 'major_name')
+            ->orderBy('year', 'desc')
+            ->orderBy('month', 'desc')
+            ->get();
+
             return response()->json([
                 'data' => [
                     'stats' => [
@@ -128,6 +145,7 @@ class AdminDashboardController extends Controller
                     ],
                     'activities' => $activities,
                     'systemStatus' => $systemStatus,
+                    'advancedStats' => $advancedStats,
                 ]
             ], 200);
         } catch (\Throwable $e) {
