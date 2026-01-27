@@ -14,7 +14,12 @@ class ProjectGroupController extends Controller
 {
     public function index(Request $request)
     {
-        $query = ProjectGroup::with(['students', 'course']);
+        $query = ProjectGroup::with([
+            'students', 
+            'course.majorSubject.subject', 
+            'course.classGroup'
+        ]);
+        
         if ($request->filled('course_id')) {
             $query->where('course_id', $request->course_id);
         }
