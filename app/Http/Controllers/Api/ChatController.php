@@ -251,6 +251,29 @@ class ChatController extends Controller
     }
 
     /**
+     * Clear all messages in a conversation (Soft Delete All)
+     */
+    public function clearConversation(Request $request, $id)
+    {
+        $me = $request->user()->id;
+
+        // Verify participant
+        $isParticipant = ConversationParticipant::where('conversation_id', $id)
+            ->where('user_id', $me)
+            ->exists();
+            
+        if (!$isParticipant) return response()->json(['message' => 'Unauthorized'], 403);
+
+        Message::where('conversation_id', $id)
+            ->update([
+                'is_deleted' => true,
+                'deleted_at' => now(),
+            ]);
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
      * List all conversations for the current user
      */
     public function conversations(Request $request)

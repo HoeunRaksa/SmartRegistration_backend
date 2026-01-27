@@ -171,6 +171,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/conversations/{id}/messages', [ChatController::class, 'sendMessage']);
     Route::post('/conversations/{id}/participants', [ChatController::class, 'addParticipants']);
     Route::delete('/conversations/{id}/participants/{userId}', [ChatController::class, 'removeParticipant']);
+    Route::delete('/conversations/{id}/messages', [ChatController::class, 'clearConversation']);
     Route::delete('/messages/{id}', [ChatController::class, 'deleteMessage']);
 });
 
