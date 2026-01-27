@@ -115,7 +115,7 @@ class AdminDashboardController extends Controller
                 DB::raw('YEAR(registrations.created_at) as year'),
                 DB::raw('MONTH(registrations.created_at) as month'),
                 'departments.name as dept_name',
-                'majors.name as major_name',
+                'majors.major_name as major_name',
                 DB::raw('count(*) as student_count'),
                 DB::raw('sum(payment_amount) as revenue')
             )
