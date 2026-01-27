@@ -144,8 +144,37 @@ Route::middleware(['auth:sanctum'])->group(function () {
 | TEACHER ROUTES
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'role:teacher'])->group(function () {
-    // add teacher routes later
+Route::middleware(['auth:sanctum', 'role:teacher'])->prefix('teacher')->group(function () {
+    // Dashboard
+    Route::get('/dashboard/stats', [TeacherDashboardController::class, 'getStats']);
+
+    // Courses
+    Route::get('/courses', [TeacherCourseController::class, 'index']);
+    Route::get('/courses/{id}', [TeacherCourseController::class, 'show']);
+    Route::get('/courses/{id}/students', [TeacherCourseController::class, 'getStudents']);
+
+    // Students
+    Route::get('/students', [TeacherStudentController::class, 'index']);
+
+    // Grades
+    Route::get('/grades', [TeacherGradeController::class, 'index']);
+    Route::post('/grades', [TeacherGradeController::class, 'store']);
+
+    // Attendance
+    Route::get('/attendance/stats', [TeacherAttendanceController::class, 'stats']);
+    Route::get('/attendance/sessions', [TeacherAttendanceController::class, 'getSessions']);
+    Route::post('/attendance/mark', [TeacherAttendanceController::class, 'markBulk']);
+
+    // Assignments
+    Route::get('/assignments', [TeacherAssignmentController::class, 'index']);
+    Route::post('/assignments', [TeacherAssignmentController::class, 'store']);
+    Route::get('/assignments/{id}/submissions', [TeacherAssignmentController::class, 'getSubmissions']);
+    Route::put('/submissions/{id}/grade', [TeacherAssignmentController::class, 'gradeSubmission']);
+
+    // Schedule
+    Route::get('/schedule', [TeacherScheduleController::class, 'index']);
+
+    // Messages (Teacher specific wrap if needed, otherwise uses global chat)
 });
 
 /*

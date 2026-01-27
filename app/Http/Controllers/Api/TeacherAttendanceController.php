@@ -1,0 +1,117 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\AttendanceRecord;
+use App\Models\ClassSession;
+use App\Models\Course;
+use App\Models\Teacher;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+
+class TeacherAttendanceController extends Controller
+{
+    /**
+     * Get attendance overview for my courses
+     * GET /api/teacher/attendance/stats
+     */
+    public function stats(Request $request)
+    {
+        try {
+            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+            $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
+
+            $totalSessions = ClassSession::whereIn('course_id', $courseIds)->count();
+            $records = AttendanceRecord::whereHas('classSession', fn($q) => $q->whereIn('course_id', $courseIds))->get();
+
+            $present = $records->where('status', 'present')->count();
+            $absent = $records->where('status', 'absent')->count();
+            $late = $records->where('status', 'late')->count();
+
+            return response()->json([
+                'data' => [
+                    'total_sessions' => $totalSessions,
+                    'present' => $present,
+                    'absent' => $absent,
+                    'late' => $late,
+                    'attendance_rate' => $records->count() > 0 ? round((($present + $late) / $records->count()) * 100, 1) : 100,
+                ]
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('TeacherAttendanceController@stats error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to load attendance stats'], 500);
+        }
+    }
+
+    /**
+     * Get all sessions for teacher courses
+     * GET /api/teacher/attendance/sessions
+     */
+    public function getSessions(Request $request)
+    {
+        try {
+            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+            $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
+
+            $sessions = ClassSession::with(['course.majorSubject.subject'])
+                ->whereIn('course_id', $courseIds)
+                ->orderByDesc('session_date')
+                ->get()
+                ->map(function($s) {
+                    return [
+                        'id' => $s->id,
+                        'course_name' => $s->course?->majorSubject?->subject?->subject_name,
+                        'date' => $s->session_date,
+                        'time' => $s->start_time . ' - ' . $s->end_time,
+                        'room' => $s->room,
+                    ];
+                });
+
+            return response()->json(['data' => $sessions], 200);
+        } catch (\Throwable $e) {
+            Log::error('TeacherAttendanceController@getSessions error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to load sessions'], 500);
+        }
+    }
+
+    /**
+     * Mark attendance for a full class
+     * POST /api/teacher/attendance/mark
+     */
+    public function markBulk(Request $request)
+    {
+        $validated = $request->validate([
+            'class_session_id' => 'required|exists:class_sessions,id',
+            'attendance'       => 'required|array',
+            'attendance.*.student_id' => 'required|exists:students,id',
+            'attendance.*.status'     => 'required|string|in:present,absent,late,excused',
+            'attendance.*.remarks'    => 'nullable|string',
+        ]);
+
+        try {
+            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+            $session = ClassSession::where('id', $validated['class_session_id'])
+                ->whereHas('course', fn($q) => $q->where('teacher_id', $teacher->id))
+                ->firstOrFail();
+
+            foreach ($validated['attendance'] as $item) {
+                AttendanceRecord::updateOrCreate(
+                    [
+                        'class_session_id' => $session->id,
+                        'student_id'       => $item['student_id'],
+                    ],
+                    [
+                        'status'  => $item['status'],
+                        'remarks' => $item['remarks'] ?? null,
+                    ]
+                );
+            }
+
+            return response()->json(['message' => 'Attendance marked successfully'], 200);
+        } catch (\Throwable $e) {
+            Log::error('TeacherAttendanceController@markBulk error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to mark attendance'], 500);
+        }
+    }
+}
