@@ -26,7 +26,11 @@ class Teacher extends Model
         'gender',
         'date_of_birth',
         'address',
-        'phone_number'
+        'phone_number',
+        'specialization',
+        'education',
+        'office_location',
+        'join_date'
     ];
 
     // ------------------- Relationships -------------------
