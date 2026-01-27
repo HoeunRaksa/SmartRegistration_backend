@@ -163,6 +163,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Project Groups (Common View)
     Route::get('/project-groups', [ProjectGroupController::class, 'index']);
+
+    // --- Enhanced Chat Routes ---
+    Route::get('/conversations', [ChatController::class, 'conversations']);
+    Route::post('/conversations/groups', [ChatController::class, 'createGroup']);
+    Route::get('/conversations/{id}/messages', [ChatController::class, 'getConversationMessages']);
+    Route::post('/conversations/{id}/messages', [ChatController::class, 'sendMessage']);
+    Route::post('/conversations/{id}/participants', [ChatController::class, 'addParticipants']);
+    Route::delete('/conversations/{id}/participants/{userId}', [ChatController::class, 'removeParticipant']);
+    Route::delete('/messages/{id}', [ChatController::class, 'deleteMessage']);
 });
 
 /*

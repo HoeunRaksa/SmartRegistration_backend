@@ -13,33 +13,29 @@ class MessageSent implements ShouldBroadcastNow
     use Dispatchable, SerializesModels;
 
     public array $payload;
-    private int $a;
-    private int $b;
+    private $conversationId;
 
     public function __construct(Message $message)
     {
         $message->load('attachments');
 
-        $x = (int) $message->s_id;
-        $y = (int) $message->r_id;
-
-        $this->a = min($x, $y);
-        $this->b = max($x, $y);
+        $this->conversationId = $message->conversation_id;
 
         // ✅ SAFE, SERIALIZABLE PAYLOAD
         $this->payload = [
-            'id'          => $message->id,
-            's_id'        => $message->s_id,
-            'r_id'        => $message->r_id,
-            'content'     => $message->content,
-            'created_at'  => $message->created_at,
-            'attachments' => $message->attachments->toArray(),
+            'id'              => $message->id,
+            'conversation_id' => $message->conversation_id,
+            's_id'            => $message->s_id,
+            'r_id'            => $message->r_id,
+            'content'         => $message->content,
+            'created_at'      => $message->created_at,
+            'attachments'     => $message->attachments->toArray(),
         ];
     }
 
     public function broadcastOn(): PrivateChannel
     {
-        return new PrivateChannel("chat.{$this->a}.{$this->b}");
+        return new PrivateChannel("conversation.{$this->conversationId}");
     }
 
     public function broadcastAs(): string

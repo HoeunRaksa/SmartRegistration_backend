@@ -6,7 +6,18 @@ use Illuminate\Database\Eloquent\Model;
 
 class Message extends Model
 {
-    protected $fillable = ['s_id', 'r_id', 'content', 'is_read'];
+    protected $fillable = ['conversation_id', 's_id', 'r_id', 'content', 'is_read', 'is_deleted', 'deleted_at'];
+
+    protected $casts = [
+        'is_deleted' => 'boolean',
+        'is_read' => 'boolean',
+        'deleted_at' => 'datetime',
+    ];
+
+    public function conversation()
+    {
+        return $this->belongsTo(Conversation::class);
+    }
 
     public function sender()
     {
