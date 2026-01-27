@@ -142,6 +142,7 @@ class TeacherController extends Controller
             ], 201);
         } catch (\Throwable $e) {
             DB::rollBack();
+            Log::error('TeacherController@store error: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to create teacher',
                 'error' => $e->getMessage(),
@@ -233,6 +234,7 @@ class TeacherController extends Controller
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();
+            Log::error('TeacherController@update error: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to update teacher',
                 'error' => $e->getMessage(),
