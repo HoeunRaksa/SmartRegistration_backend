@@ -131,7 +131,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/teachers', [TeacherController::class, 'index']);
     Route::get('/teachers/{id}', [TeacherController::class, 'show']);
     Route::post('/teachers', [TeacherController::class, 'store']);
-    Route::post('/teachers/{id}', [TeacherController::class, 'update']); // FormData friendly
+    Route::match(['POST', 'PUT'], '/teachers/{id}', [TeacherController::class, 'update']); // FormData friendly
     Route::delete('/teachers/{id}', [TeacherController::class, 'destroy']);
 
     Route::get('/chat/{userId}', [ChatController::class, 'index']);
