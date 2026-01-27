@@ -296,24 +296,28 @@ class ChatController extends Controller
      */
     public function conversations(Request $request)
     {
-        $me = $request->user()->id;
+        $me = $request->user();
+        $this->syncCourseGroups($me);
 
-        $conversations = Conversation::with(['latestMessage', 'participants.user'])
+        $conversations = Conversation::with(['latestMessage', 'participants.user', 'course.majorSubject.subject'])
             ->whereHas('participants', function ($q) use ($me) {
-                $q->where('user_id', $me);
+                $q->where('user_id', $me->id);
             })
             ->get();
 
         $data = $conversations->map(function ($conv) use ($me) {
             $last = $conv->latestMessage;
             
-            // For private chats, the name is the other participant's name
             $name = $conv->title;
             $avatar = null;
 
+            if ($conv->course_id) {
+                $name = $conv->course->display_name ?? $conv->title;
+            }
+
             $otherUserId = null;
             if ($conv->type === 'private') {
-                $other = $conv->participants->where('user_id', '!=', $me)->first()?->user;
+                $other = $conv->participants->where('user_id', '!=', $me->id)->first()?->user;
                 $name = $other?->name ?? 'Deleted User';
                 $avatar = $other?->profile_picture_url;
                 $otherUserId = $other?->id;
@@ -324,11 +328,13 @@ class ChatController extends Controller
                 'conversation_id' => $conv->id,
                 'name' => $name,
                 'type' => $conv->type,
+                'course_id' => $conv->course_id,
                 'other_user_id' => $otherUserId,
+                'creator_id' => $conv->creator_id,
                 'last_message' => $last?->is_deleted ? 'Message deleted' : $last?->content,
                 'last_message_time' => $last?->created_at,
                 'unread_count' => Message::where('conversation_id', $conv->id)
-                                    ->where('r_id', $me) // This is tricky in group, maybe is_read per user?
+                                    ->where('r_id', $me->id)
                                     ->where('is_read', false)
                                     ->count(),
                 'avatar' => $avatar,
@@ -337,5 +343,83 @@ class ChatController extends Controller
         })->sortByDesc('last_message_time')->values();
 
         return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Sync course groups for the current user.
+     */
+    protected function syncCourseGroups($user)
+    {
+        $courses = [];
+        if ($user->role === 'student') {
+            $courses = \App\Models\CourseEnrollment::where('student_id', $user->student?->id)
+                ->pluck('course_id');
+        } elseif ($user->role === 'teacher') {
+            $courses = \App\Models\Course::where('teacher_id', $user->teacher?->id)
+                ->pluck('id');
+        }
+
+        foreach ($courses as $courseId) {
+            $conv = Conversation::firstOrCreate([
+                'course_id' => $courseId,
+                'type' => 'course_group'
+            ], [
+                'title' => 'Course Group Chat',
+            ]);
+
+            ConversationParticipant::firstOrCreate([
+                'conversation_id' => $conv->id,
+                'user_id' => $user->id
+            ]);
+        }
+    }
+
+    /**
+     * Get classmates/peers for the current student.
+     */
+    public function getClassmates(Request $request)
+    {
+        $user = $request->user();
+        if ($user->role !== 'student') {
+            return response()->json(['data' => []]);
+        }
+
+        $student = $user->student;
+        if (!$student) return response()->json(['data' => []]);
+
+        $myCourseIds = \App\Models\CourseEnrollment::where('student_id', $student->id)
+            ->pluck('course_id');
+
+        $classmates = User::whereHas('student.enrollments', function ($q) use ($myCourseIds) {
+            $q->whereIn('course_id', $myCourseIds);
+        })
+        ->where('id', '!=', $user->id)
+        ->distinct()
+        ->get()
+        ->map(function ($u) {
+            return [
+                'id' => $u->id,
+                'name' => $u->name,
+                'avatar' => $u->profile_picture_url,
+                'role' => $u->role,
+                'student_id' => $u->student?->student_code
+            ];
+        });
+
+        return response()->json(['data' => $classmates]);
+    }
+
+    /**
+     * Delete a conversation (if owner)
+     */
+    public function destroy(Request $request, $id)
+    {
+        $conv = Conversation::findOrFail($id);
+        if ($conv->creator_id !== $request->user()->id && $request->user()->id !== 1) { // 1 for admin
+             return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $conv->delete(); // Cascades to messages and participants
+        return response()->json(['success' => true]);
     }
 }
