@@ -48,6 +48,11 @@ use App\Http\Controllers\Api\TeacherGradeController;
 use App\Http\Controllers\Api\TeacherAttendanceController;
 use App\Http\Controllers\Api\TeacherAssignmentController;
 use App\Http\Controllers\Api\TeacherScheduleController;
+use App\Http\Controllers\Api\NotificationPreferenceController;
+use App\Http\Controllers\Api\BulkEnrollmentController;
+use App\Http\Controllers\Api\BulkGradeController;
+use App\Http\Controllers\Api\ExportController;
+use App\Http\Controllers\Api\PasswordResetController;
 
 use Illuminate\Support\Facades\Broadcast;
 
@@ -407,6 +412,49 @@ Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(fu
     Route::get('/calendar/month', [StudentCalendarController::class, 'getMonth']);
     Route::get('/calendar/upcoming', [StudentCalendarController::class, 'getUpcoming']);
     Route::get('/calendar/date/{date}', [StudentCalendarController::class, 'getByDate']);
+    
+    // Notification Preferences
+    Route::get('/notification-preferences', [NotificationPreferenceController::class, 'index']);
+    Route::put('/notification-preferences', [NotificationPreferenceController::class, 'update']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| PASSWORD RESET (PUBLIC)
+|--------------------------------------------------------------------------
+*/
+Route::post('/password/email', [PasswordResetController::class, 'sendResetLink']);
+Route::post('/password/reset', [PasswordResetController::class, 'reset']);
+
+/*
+|--------------------------------------------------------------------------
+| BULK OPERATIONS & EXPORT (ADMIN/TEACHER)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum'])->group(function () {
+    // Bulk Enrollment (Admin)
+    Route::middleware('role:admin')->prefix('admin/bulk')->group(function () {
+        Route::post('/enrollment', [BulkEnrollmentController::class, 'bulkEnroll']);
+        Route::get('/enrollment/template', [BulkEnrollmentController::class, 'downloadTemplate']);
+    });
+
+    // Bulk Grades (Teacher)
+    Route::middleware('role:teacher')->prefix('teacher/bulk')->group(function () {
+        Route::post('/grades', [BulkGradeController::class, 'bulkImport']);
+        Route::get('/grades/template', [BulkGradeController::class, 'downloadTemplate']);
+    });
+
+    // Data Export (Admin)
+    Route::middleware('role:admin')->prefix('admin/export')->group(function () {
+        Route::get('/students', [ExportController::class, 'exportStudents']);
+        Route::get('/payments', [ExportController::class, 'exportPayments']);
+    });
+
+    // Data Export (Teacher)
+    Route::middleware('role:teacher')->prefix('teacher/export')->group(function () {
+        Route::get('/grades/{courseId}', [ExportController::class, 'exportGrades']);
+        Route::get('/attendance/{courseId}', [ExportController::class, 'exportAttendance']);
+    });
 });
 
 /*
