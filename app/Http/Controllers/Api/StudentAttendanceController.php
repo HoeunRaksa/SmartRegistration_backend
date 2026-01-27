@@ -219,8 +219,8 @@ class StudentAttendanceController extends Controller
                     'present' => $present,
                     'absent' => $absent,
                     'late' => $late,
-                    'attendance_rate' => $total > 0 ? round(($present / $total) * 100, 1) : 100,
-                    'status' => $this->getCourseAttendanceStatus($present, $total),
+                    'attendance_rate' => $total > 0 ? round((($present + $late) / $total) * 100, 1) : 100,
+                    'status' => $this->getCourseAttendanceStatus($present + $late, $total),
                 ];
             }
 
