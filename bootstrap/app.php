@@ -28,8 +28,8 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         // ✅ API middleware (FIXED)
-        $middleware->api(append: [
-            HandleCors::class, // 🔥 REQUIRED FOR 403 FIX
+        $middleware->api(prepend: [
+            HandleCors::class, // 🔥 REQUIRED FOR 403 FIX (MOVED TO TOP)
             \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ]);
