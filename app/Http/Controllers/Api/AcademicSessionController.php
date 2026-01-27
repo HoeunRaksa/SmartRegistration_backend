@@ -116,7 +116,9 @@ class AcademicSessionController extends Controller
             'message' => "Successfully generated sessions.",
             'count' => $generatedCount
         ]);
-        /**
+    }
+
+    /**
      * Get the current or upcoming academic session
      */
     public function current()
