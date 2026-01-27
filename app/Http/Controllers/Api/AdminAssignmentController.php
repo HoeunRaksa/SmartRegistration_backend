@@ -13,11 +13,16 @@ class AdminAssignmentController extends Controller
     /**
      * GET /api/admin/assignments
      */
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $assignments = Assignment::with('course')
-                ->orderByDesc('id')
+            $query = Assignment::with('course');
+
+            if ($request->has('course_id')) {
+                $query->where('course_id', $request->course_id);
+            }
+
+            $assignments = $query->orderByDesc('id')
                 ->get()
                 ->map(function ($a) {
                     $course = $a->course;
