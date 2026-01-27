@@ -236,9 +236,18 @@ class ChatController extends Controller
     public function deleteMessage(Request $request, $messageId)
     {
         $message = Message::findOrFail($messageId);
+        $me = $request->user();
 
-        // Only sender can delete
-        if ($message->s_id !== $request->user()->id) {
+        // Check if sender OR teacher/admin participant
+        $isSender = $message->s_id === $me->id;
+        $isTeacherOrAdmin = in_array($me->role, ['teacher', 'admin']);
+        
+        // Verify user is actually a participant of this conversation
+        $isParticipant = ConversationParticipant::where('conversation_id', $message->conversation_id)
+            ->where('user_id', $me->id)
+            ->exists();
+
+        if (!$isSender && !($isTeacherOrAdmin && $isParticipant)) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
