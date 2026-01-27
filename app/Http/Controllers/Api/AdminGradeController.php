@@ -48,6 +48,7 @@ class AdminGradeController extends Controller
                         'student_code' => $g->student->student_code ?? null,
                         'course_code' => $g->course->course_code ?? null,
                         'course_name' => $g->course->course_name ?? null,
+                        'student_avatar' => $g->student->profile_picture_url ?? null,
                     ];
                 });
 

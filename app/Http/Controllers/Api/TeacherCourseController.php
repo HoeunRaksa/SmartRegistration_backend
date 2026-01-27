@@ -102,6 +102,7 @@ class TeacherCourseController extends Controller
                         'name' => $e->student->full_name,
                         'student_id' => $e->student->student_code,
                         'email' => $e->student->user?->email,
+                        'profile_picture_url' => $e->student->profile_picture_url,
                     ];
                 });
 

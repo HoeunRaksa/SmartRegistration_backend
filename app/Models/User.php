@@ -11,6 +11,7 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, TwoFactorAuthenticatable;
+    protected $appends = ['profile_picture_url'];
 
     public function getProfilePictureUrlAttribute()
     {

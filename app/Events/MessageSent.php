@@ -27,6 +27,8 @@ class MessageSent implements ShouldBroadcastNow
             'conversation_id' => $message->conversation_id,
             's_id'            => $message->s_id,
             'r_id'            => $message->r_id,
+            'sender_name'     => $message->sender?->name,
+            'sender_avatar'   => $message->sender?->profile_picture_url,
             'content'         => $message->content,
             'created_at'      => $message->created_at,
             'attachments'     => $message->attachments->toArray(),
