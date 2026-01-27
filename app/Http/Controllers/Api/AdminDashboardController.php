@@ -7,7 +7,7 @@ use App\Models\Student;
 use App\Models\Course;
 use App\Models\Department;
 use App\Models\Registration;
-use App\Models\Attendance;
+use App\Models\AttendanceRecord;
 use App\Models\Grade;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -51,7 +51,7 @@ class AdminDashboardController extends Controller
                         ->count();
                     
                     return [
-                        'name' => $dept->department_name,
+                        'name' => $dept->name,
                         'value' => $studentCount
                     ];
                 });
@@ -63,13 +63,23 @@ class AdminDashboardController extends Controller
                 $weekLabel = 'Week ' . (4 - $i);
                 
                 // Real attendance rate for that week
-                $attendanceRate = Attendance::where('date', '>=', $date->startOfWeek()->toDateString())
-                    ->where('date', '<=', $date->endOfWeek()->toDateString())
-                    ->avg('is_present') * 100 ?? 85;
+                $sessionIds = ClassSession::where('session_date', '>=', $date->startOfWeek()->toDateString())
+                    ->where('session_date', '<=', $date->endOfWeek()->toDateString())
+                    ->pluck('id');
+
+                $attendanceRate = 85; // Default fallback
+                if ($sessionIds->isNotEmpty()) {
+                    $totalRecords = AttendanceRecord::whereIn('class_session_id', $sessionIds)->count();
+                    if ($totalRecords > 0) {
+                        $presentCount = AttendanceRecord::whereIn('class_session_id', $sessionIds)
+                            ->where('status', 'present')
+                            ->count();
+                        $attendanceRate = ($presentCount / $totalRecords) * 100;
+                    }
+                }
 
                 // Real average grade for that week
-                $avgGrade = Grade::where('created_at', '>=', $date->startOfWeek())
-                    ->where('created_at', '<=', $date->endOfWeek())
+                $avgGrade = Grade::whereBetween('created_at', [$date->startOfWeek()->toDateTimeString(), $date->endOfWeek()->toDateTimeString()])
                     ->avg('score') ?? 75;
 
                 $performanceData[] = [
