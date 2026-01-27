@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\UserSettingsController;
+use App\Http\Controllers\Api\AdminDashboardController;
 
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\RegistrationController;
@@ -216,6 +217,9 @@ Route::middleware(['auth:sanctum', 'role:teacher,staff,admin'])->group(function 
 Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 
     Route::prefix('admin')->group(function () {
+
+        // Dashboard
+        Route::get('/dashboard/stats', [AdminDashboardController::class, 'getStats']);
 
         // Enrollments
         Route::get('/enrollments', [AdminEnrollmentController::class, 'index']);
