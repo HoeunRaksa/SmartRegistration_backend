@@ -162,7 +162,7 @@ class AdminDashboardController extends Controller
                     DB::raw('COUNT(class_sessions.id) as session_count')
                 )
                 ->where('class_sessions.session_date', '>=', now()->startOfMonth())
-                ->groupBy('room_name')
+                ->groupBy('rooms.room_name', 'rooms.room_number', 'class_sessions.room')
                 ->orderBy('session_count', 'desc')
                 ->limit(20)
                 ->get();
