@@ -180,6 +180,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/chat/classmates', [ChatController::class, 'getClassmates']);
 
     // Academic Sessions & Auto-Generation
+    Route::get('/academic-sessions/current', [AcademicSessionController::class, 'current']);
     Route::apiResource('academic-sessions', AcademicSessionController::class);
     Route::post('/academic-sessions/{id}/generate', [AcademicSessionController::class, 'generateSchedules']);
 });

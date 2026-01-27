@@ -116,5 +116,32 @@ class AcademicSessionController extends Controller
             'message' => "Successfully generated sessions.",
             'count' => $generatedCount
         ]);
+        /**
+     * Get the current or upcoming academic session
+     */
+    public function current()
+    {
+        $today = Carbon::now();
+        
+        // 1. Try to find a session that covers today
+        $current = AcademicSession::where('start_date', '<=', $today)
+            ->where('end_date', '>=', $today)
+            ->first();
+
+        // 2. If no current, find the next upcoming one
+        if (!$current) {
+            $current = AcademicSession::where('start_date', '>', $today)
+                ->orderBy('start_date', 'asc')
+                ->first();
+        }
+
+        // 3. Fallback to latest
+        if (!$current) {
+            $current = AcademicSession::orderBy('end_date', 'desc')->first();
+        }
+
+        return response()->json([
+            'data' => $current
+        ]);
     }
 }
