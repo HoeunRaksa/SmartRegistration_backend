@@ -194,6 +194,10 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->prefix('teacher')->group(fu
     // Dashboard
     Route::get('/dashboard/stats', [TeacherDashboardController::class, 'getStats']);
 
+    // Profile
+    Route::get('/profile', [TeacherDashboardController::class, 'getProfile']);
+    Route::post('/profile', [TeacherDashboardController::class, 'updateProfile']);
+
     // Courses
     Route::get('/courses', [TeacherCourseController::class, 'index']);
     Route::get('/courses/{id}', [TeacherCourseController::class, 'show']);
