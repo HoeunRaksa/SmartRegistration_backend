@@ -127,6 +127,46 @@ class AdminDashboardController extends Controller
             ->orderBy('month', 'desc')
             ->get();
 
+            // 11. Academics (GPA by Dept)
+            $academicStats = DB::table('grades')
+                ->join('students', 'grades.student_id', '=', 'students.id')
+                ->join('departments', 'students.department_id', '=', 'departments.id')
+                ->select(
+                    'departments.name as dept_name',
+                    DB::raw('AVG(grades.grade_point) as avg_gpa'),
+                    DB::raw('COUNT(grades.id) as records')
+                )
+                ->whereNotNull('grades.grade_point')
+                ->groupBy('departments.name')
+                ->get();
+
+            // 12. Attendance (Presence Rate by Dept)
+            $attendanceStats = DB::table('attendance_records')
+                ->join('students', 'attendance_records.student_id', '=', 'students.id')
+                ->join('departments', 'students.department_id', '=', 'departments.id')
+                ->select(
+                    'departments.name as dept_name',
+                    DB::raw('SUM(CASE WHEN attendance_records.status = "present" THEN 1 ELSE 0 END) as present_count'),
+                    DB::raw('COUNT(*) as total'),
+                    DB::raw('ROUND(SUM(CASE WHEN attendance_records.status = "present" THEN 1 ELSE 0 END) / COUNT(*) * 100, 1) as rate')
+                )
+                ->groupBy('departments.name')
+                ->get();
+
+            // 13. Campus Activity (Active Sessions per Room)
+            // Join with 'rooms' table to get room names via 'room_id'
+            $campusStats = DB::table('class_sessions')
+                ->leftJoin('rooms', 'class_sessions.room_id', '=', 'rooms.id')
+                ->select(
+                    DB::raw('COALESCE(rooms.name, class_sessions.room, "Unassigned") as room_name'),
+                    DB::raw('COUNT(class_sessions.id) as session_count')
+                )
+                ->where('class_sessions.session_date', '>=', now()->startOfMonth())
+                ->groupBy('room_name')
+                ->orderBy('session_count', 'desc')
+                ->limit(20)
+                ->get();
+
             return response()->json([
                 'data' => [
                     'stats' => [
@@ -145,7 +185,12 @@ class AdminDashboardController extends Controller
                     ],
                     'activities' => $activities,
                     'systemStatus' => $systemStatus,
+                    'activities' => $activities,
+                    'systemStatus' => $systemStatus,
                     'advancedStats' => $advancedStats,
+                    'academicStats' => $academicStats,
+                    'attendanceStats' => $attendanceStats,
+                    'campusStats' => $campusStats,
                 ]
             ], 200);
         } catch (\Throwable $e) {
