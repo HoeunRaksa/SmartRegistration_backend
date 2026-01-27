@@ -158,7 +158,7 @@ class AdminDashboardController extends Controller
             $campusStats = DB::table('class_sessions')
                 ->leftJoin('rooms', 'class_sessions.room_id', '=', 'rooms.id')
                 ->select(
-                    DB::raw('COALESCE(rooms.name, class_sessions.room, "Unassigned") as room_name'),
+                    DB::raw('COALESCE(rooms.room_name, rooms.room_number, class_sessions.room, "Unassigned") as room_name'),
                     DB::raw('COUNT(class_sessions.id) as session_count')
                 )
                 ->where('class_sessions.session_date', '>=', now()->startOfMonth())
