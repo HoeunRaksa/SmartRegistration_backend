@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\UserSettingsController;
 use App\Http\Controllers\Api\AdminDashboardController;
+use App\Http\Controllers\Api\AcademicSessionController;
 
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\RegistrationController;
@@ -175,7 +176,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('/conversations/{id}/messages', [ChatController::class, 'clearConversation']);
     Route::delete('/messages/{id}', [ChatController::class, 'deleteMessage']);
 
+
     Route::get('/chat/classmates', [ChatController::class, 'getClassmates']);
+
+    // Academic Sessions & Auto-Generation
+    Route::apiResource('academic-sessions', AcademicSessionController::class);
+    Route::post('/academic-sessions/{id}/generate', [AcademicSessionController::class, 'generateSchedules']);
 });
 
 /*
