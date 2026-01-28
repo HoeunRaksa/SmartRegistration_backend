@@ -52,10 +52,12 @@ class AdminDashboardController extends Controller
                 ])
                 ->values();
 
-            // 4. Revenue by Department
-            $revenueByDept = Department::select('departments.name', DB::raw('SUM(registrations.payment_amount) as total_revenue'))
-                ->join('registrations', 'departments.id', '=', 'registrations.department_id')
-                ->where('registrations.payment_status', 'paid')
+            // 4. Revenue by Department - Using leftJoin to ensure all departments appear
+            $revenueByDept = Department::select('departments.name', DB::raw('COALESCE(SUM(registrations.payment_amount), 0) as total_revenue'))
+                ->leftJoin('registrations', function($join) {
+                    $join->on('departments.id', '=', 'registrations.department_id')
+                         ->where('registrations.payment_status', '=', 'paid');
+                })
                 ->groupBy('departments.id', 'departments.name')
                 ->orderBy('total_revenue', 'desc')
                 ->get();
