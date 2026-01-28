@@ -25,6 +25,7 @@ class AdminDashboardController extends Controller
             $totalStudents = Student::count();
             $totalCourses = Course::count();
             $totalDepartments = Department::count();
+            $totalMajors = Major::count();
             $pendingRegistrations = Registration::where('payment_status', 'pending')->count();
 
             // 2. Growth Comparisons (MoM)
@@ -175,6 +176,7 @@ class AdminDashboardController extends Controller
                         'totalStudents' => $totalStudents,
                         'totalCourses' => $totalCourses,
                         'totalDepartments' => $totalDepartments,
+                        'totalMajors' => $totalMajors,
                         'pendingRegistrations' => $pendingRegistrations,
                         'studentGrowth' => $studentGrowth . '%',
                     ],
