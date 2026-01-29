@@ -61,10 +61,11 @@ class TeacherAttendanceController extends Controller
                 ->map(function($s) {
                     return [
                         'id' => $s->id,
-                        'course_name' => $s->course?->majorSubject?->subject?->subject_name ?? '',
+                        'course_id' => $s->course_id,
+                        'course_name' => $s->course?->majorSubject?->subject?->subject_name ?? $s->course?->id ?? '',
                         'date' => $s->session_date,
-                        'time' => $s->start_time . ' - ' . $s->end_time,
-                        'room' => $s->room,
+                        'time' => ($s->start_time ?? '') . ' - ' . ($s->end_time ?? ''),
+                        'room' => $s->room ?? '',
                     ];
                 });
 
