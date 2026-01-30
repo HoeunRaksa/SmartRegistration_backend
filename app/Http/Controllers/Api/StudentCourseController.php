@@ -43,12 +43,12 @@ class StudentCourseController extends Controller
                 return [
                     'enrollment_id' => $enrollment->id,
                     'course_id' => $course->id,
-                    'course_code' => $subject?->subject_code ?? 'N/A',
-                    'course_name' => $subject?->subject_name ?? 'N/A',
+                    'course_code' => $subject?->subject_code ?? null,
+                    'course_name' => $subject?->subject_name ?? null,
                     'credits' => $subject?->credits ?? 0,
                     'instructor' => [
                         'id' => $teacher?->id,
-                        'name' => $teacher?->user?->name ?? 'N/A',
+                        'name' => $teacher?->user?->name ?? null,
                     ],
                     'class_group' => $course->classGroup?->name ?? null,
                     'semester' => $course->semester,
@@ -59,7 +59,7 @@ class StudentCourseController extends Controller
                         'day' => $s->day_of_week,
                         'start_time' => $s->start_time,
                         'end_time' => $s->end_time,
-                        'room' => $s->roomRef?->room_number ?? $s->room ?? 'N/A',
+                        'room' => $s->roomRef?->room_number ?? $s->room ?? null,
                     ]),
                 ];
             })->filter()->values();
@@ -104,13 +104,13 @@ class StudentCourseController extends Controller
 
                     return [
                         'course_id' => $course->id,
-                        'course_code' => $subject?->subject_code ?? 'N/A',
-                        'course_name' => $subject?->subject_name ?? 'N/A',
+                        'course_code' => $subject?->subject_code ?? null,
+                        'course_name' => $subject?->subject_name ?? null,
                         'description' => $subject?->description ?? null,
                         'credits' => $subject?->credits ?? 0,
                         'instructor' => [
                             'id' => $teacher?->id,
-                            'name' => $teacher?->user?->name ?? 'N/A',
+                            'name' => $teacher?->user?->name ?? null,
                         ],
                         'class_group' => $course->classGroup?->name ?? null,
                         'semester' => $course->semester,
@@ -121,7 +121,7 @@ class StudentCourseController extends Controller
                             'day' => $s->day_of_week,
                             'start_time' => $s->start_time,
                             'end_time' => $s->end_time,
-                            'room' => $s->roomRef?->room_number ?? $s->room ?? 'N/A',
+                            'room' => $s->roomRef?->room_number ?? $s->room ?? null,
                         ]),
                     ];
                 });
@@ -162,13 +162,13 @@ class StudentCourseController extends Controller
             return response()->json([
                 'data' => [
                     'course_id' => $course->id,
-                    'course_code' => $subject?->subject_code ?? 'N/A',
-                    'course_name' => $subject?->subject_name ?? 'N/A',
+                    'course_code' => $subject?->subject_code ?? null,
+                    'course_name' => $subject?->subject_name ?? null,
                     'description' => $subject?->description ?? null,
                     'credits' => $subject?->credits ?? 0,
                     'instructor' => [
                         'id' => $teacher?->id,
-                        'name' => $teacher?->user?->name ?? 'N/A',
+                        'name' => $teacher?->user?->name ?? null,
                         'email' => $teacher?->user?->email ?? null,
                     ],
                     'class_group' => $course->classGroup?->name ?? null,
@@ -182,7 +182,7 @@ class StudentCourseController extends Controller
                         'day' => $s->day_of_week,
                         'start_time' => $s->start_time,
                         'end_time' => $s->end_time,
-                        'room' => $s->roomRef?->room_number ?? $s->room ?? 'N/A',
+                        'room' => $s->roomRef?->room_number ?? $s->room ?? null,
                         'building' => $s->roomRef?->building?->building_name ?? null,
                     ]),
                 ]
@@ -307,8 +307,8 @@ class StudentCourseController extends Controller
                     return [
                         'enrollment_id' => $enrollment->id,
                         'course_id' => $course?->id,
-                        'course_code' => $subject?->subject_code ?? 'N/A',
-                        'course_name' => $subject?->subject_name ?? 'N/A',
+                        'course_code' => $subject?->subject_code ?? null,
+                        'course_name' => $subject?->subject_name ?? null,
                         'credits' => $subject?->credits ?? 0,
                         'status' => $enrollment->status,
                         'enrolled_at' => $enrollment->enrolled_at,
