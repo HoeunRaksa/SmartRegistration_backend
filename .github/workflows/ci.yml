@@ -48,8 +48,8 @@ jobs:
             cd /var/www/SmartRegistration_backend
 
             echo "== GIT PULL latest code as ubuntu =="
-            git reset --hard
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
 
             echo "== SET PERMISSIONS FOR www-data =="
             sudo chown -R www-data:www-data /var/www/SmartRegistration_backend
