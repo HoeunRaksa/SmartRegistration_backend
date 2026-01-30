@@ -14,6 +14,7 @@ class AttendanceRecord extends Model
         'student_id',
         'status',
         'notes',
+        'remarks',
     ];
 
     public function classSession()

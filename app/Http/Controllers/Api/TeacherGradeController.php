@@ -27,13 +27,17 @@ class TeacherGradeController extends Controller
                 ->map(function($g) {
                     return [
                         'id' => $g->id,
+                        'student_id' => $g->student_id,
                         'student_name' => $g->student?->full_name,
+                        'course_id' => $g->course_id,
                         'course_name' => $g->course?->majorSubject?->subject?->subject_name ?? '',
                         'assignment' => $g->assignment_name,
+                        'assignment_name' => $g->assignment_name,
                         'score' => $g->score,
                         'total_points' => $g->total_points,
                         'grade' => $g->letter_grade,
-                        'feedback' => $g->feedback
+                        'letter_grade' => $g->letter_grade,
+                        'feedback' => $g->feedback,
                     ];
                 });
 
