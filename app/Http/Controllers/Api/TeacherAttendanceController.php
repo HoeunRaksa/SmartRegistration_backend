@@ -19,7 +19,19 @@ class TeacherAttendanceController extends Controller
     public function stats(Request $request)
     {
         try {
-            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+            $user = $request->user();
+            $teacher = Teacher::where('user_id', $user->id)->first();
+            if (!$teacher) {
+                return response()->json([
+                    'data' => [
+                        'total_sessions' => 0,
+                        'present' => 0,
+                        'absent' => 0,
+                        'late' => 0,
+                        'attendance_rate' => 100,
+                    ]
+                ], 200);
+            }
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
 
             $totalSessions = ClassSession::whereIn('course_id', $courseIds)->count();
@@ -51,7 +63,11 @@ class TeacherAttendanceController extends Controller
     public function getSessions(Request $request)
     {
         try {
-            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+            $user = $request->user();
+            $teacher = Teacher::where('user_id', $user->id)->first();
+            if (!$teacher) {
+                return response()->json(['data' => []], 200);
+            }
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
 
             $sessions = ClassSession::with(['course.majorSubject.subject'])

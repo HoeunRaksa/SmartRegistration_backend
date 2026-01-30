@@ -20,7 +20,17 @@ class TeacherDashboardController extends Controller
     public function getStats(Request $request)
     {
         try {
-            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+            $teacher = Teacher::where('user_id', $request->user()->id)->first();
+            if (!$teacher) {
+                return response()->json([
+                    'data' => [
+                        'total_students' => 0,
+                        'total_courses' => 0,
+                        'upcoming_sessions' => [],
+                        'years_teaching' => 0,
+                    ]
+                ], 200);
+            }
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
 
             $totalStudents = CourseEnrollment::whereIn('course_id', $courseIds)

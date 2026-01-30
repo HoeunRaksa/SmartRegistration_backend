@@ -19,7 +19,11 @@ class TeacherStudentController extends Controller
     public function index(Request $request)
     {
         try {
-            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+            $user = $request->user();
+            $teacher = Teacher::where('user_id', $user->id)->first();
+            if (!$teacher) {
+                return response()->json(['data' => []], 200);
+            }
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
 
             $studentIds = CourseEnrollment::whereIn('course_id', $courseIds)

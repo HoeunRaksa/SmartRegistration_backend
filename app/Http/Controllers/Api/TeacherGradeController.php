@@ -18,33 +18,53 @@ class TeacherGradeController extends Controller
     public function index(Request $request)
     {
         try {
-            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+            $user = $request->user();
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            $teacher = Teacher::where('user_id', $user->id)->first();
+            if (!$teacher) {
+                Log::warning('TeacherGradeController@index: Teacher record not found for user_id ' . $user->id);
+                return response()->json(['data' => []], 200);
+            }
+
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
+            if ($courseIds->isEmpty()) {
+                return response()->json(['data' => []], 200);
+            }
 
             $grades = Grade::with(['student.user', 'course.majorSubject.subject'])
-                ->whereIn('course_id', $courseIds)
+                ->whereIn('course_id', $courseIds->toArray())
                 ->get()
                 ->map(function($g) {
+                    $studentName = $g->student ? ($g->student->full_name_en ?: $g->student->full_name_kh ?: $g->student->student_code) : 'Unknown Student';
+                    $courseName = $g->course?->majorSubject?->subject?->subject_name ?? ('Course #' . $g->course_id);
+
                     return [
                         'id' => $g->id,
                         'student_id' => $g->student_id,
-                        'student_name' => $g->student?->full_name,
+                        'student_name' => $studentName,
                         'course_id' => $g->course_id,
-                        'course_name' => $g->course?->majorSubject?->subject?->subject_name ?? '',
-                        'assignment' => $g->assignment_name,
-                        'assignment_name' => $g->assignment_name,
-                        'score' => $g->score,
-                        'total_points' => $g->total_points,
-                        'grade' => $g->letter_grade,
-                        'letter_grade' => $g->letter_grade,
-                        'feedback' => $g->feedback,
+                        'course_name' => $courseName,
+                        'assignment' => $g->assignment_name ?? '',
+                        'assignment_name' => $g->assignment_name ?? '',
+                        'score' => (float)($g->score ?? 0),
+                        'total_points' => (float)($g->total_points ?? 100),
+                        'grade' => $g->letter_grade ?? '',
+                        'letter_grade' => $g->letter_grade ?? '',
+                        'feedback' => $g->feedback ?? '',
                     ];
                 });
 
             return response()->json(['data' => $grades], 200);
         } catch (\Throwable $e) {
-            Log::error('TeacherGradeController@index error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to load grades'], 500);
+            Log::error('TeacherGradeController@index error: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json(['message' => 'Failed to load grades: ' . $e->getMessage()], 500);
         }
     }
 
