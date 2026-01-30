@@ -78,6 +78,9 @@ Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 
+// Email existence check (before registration)
+Route::post('/check-email', [App\Http\Controllers\EmailCheckController::class, 'checkEmail']);
+
 Route::post('/register/save', [RegistrationController::class, 'store']); // student self-register
 Route::post('/registrations/{id}/pay-later', [RegistrationController::class, 'payLater']);
 // routes/api.php
