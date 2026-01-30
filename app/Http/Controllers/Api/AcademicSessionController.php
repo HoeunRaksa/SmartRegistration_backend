@@ -67,13 +67,21 @@ class AcademicSessionController extends Controller
             ->where('semester', $session->semester)
             ->get();
 
+        if ($courses->isEmpty()) {
+            return response()->json(['message' => "No courses found for this session.", 'count' => 0]);
+        }
+
         $generatedCount = 0;
-        $startDate = Carbon::parse($session->start_date);
-        $endDate = Carbon::parse($session->end_date);
+        $startDate = Carbon::parse($session->start_date)->startOfDay();
+        $endDate = Carbon::parse($session->end_date)->endOfDay();
+        // Fallback or ensure we don't loop forever
+        if ($startDate->gt($endDate)) {
+             return response()->json(['message' => "Start date cannot be after end date.", 'count' => 0], 400);
+        }
 
         foreach ($courses as $course) {
             foreach ($course->classSchedules as $schedule) {
-                // Map day name (Monday) to Carbon day of week integer (1 = Monday)
+                // Map day name (Monday) to Carbon day of week integer
                 $dayMap = [
                     'Monday' => Carbon::MONDAY,
                     'Tuesday' => Carbon::TUESDAY,
@@ -87,13 +95,22 @@ class AcademicSessionController extends Controller
                 $targetDay = $dayMap[$schedule->day_of_week] ?? null;
                 if ($targetDay === null) continue;
 
-                // Loop through dates
-                $current = $startDate->copy()->next($targetDay);
-                // If start date is exactly the target day, include it
-                if ($startDate->dayOfWeek === $targetDay) {
-                    $current = $startDate->copy();
+                // Find the first occurrence of this day on or after start date
+                $current = $startDate->copy();
+                
+                // If start date matches, use it. Otherwise find next.
+                // Note: dayOfWeek returns 0 (Sun) - 6 (Sat) usually, but Carbon constants are 0-6 too.
+                // However, let's play safe with a loop limited to 7 days
+                $daysChecked = 0;
+                while ($current->dayOfWeek !== $targetDay && $daysChecked < 7) {
+                    $current->addDay();
+                    $daysChecked++;
                 }
 
+                // If we went past end date just trying to find the first day, skip
+                if ($current->gt($endDate)) continue;
+
+                // Loop through dates (weekly)
                 while ($current->lte($endDate)) {
                     ClassSession::firstOrCreate([
                         'course_id' => $course->id,

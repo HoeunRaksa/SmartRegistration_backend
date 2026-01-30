@@ -183,10 +183,11 @@ class TeacherAttendanceController extends Controller
                 ->where('teacher_id', $teacher->id)
                 ->firstOrFail();
 
-            $session = ClassSession::create([
+            $session = ClassSession::firstOrCreate([
                 'course_id'    => $validated['course_id'],
                 'session_date' => $validated['session_date'],
                 'start_time'   => $validated['start_time'],
+            ], [
                 'end_time'     => $validated['end_time'],
                 'room'         => $validated['room'] ?? null,
             ]);
