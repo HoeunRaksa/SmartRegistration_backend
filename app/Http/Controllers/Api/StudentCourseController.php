@@ -84,12 +84,16 @@ class StudentCourseController extends Controller
                 ->where('status', 'enrolled')
                 ->pluck('course_id');
 
+            // Optimized: Use withCount to avoid N+1 query for enrollment counts
             $courses = Course::with([
                     'majorSubject.subject',
                     'teacher.user',
                     'classGroup',
                     'classSchedules.roomRef'
                 ])
+                ->withCount(['enrollments as enrolled_count' => function ($query) {
+                    $query->where('status', 'enrolled');
+                }])
                 ->whereNotIn('id', $enrolledCourseIds)
                 ->orderByDesc('id')
                 ->get()
@@ -97,11 +101,6 @@ class StudentCourseController extends Controller
                     $subject = $course->majorSubject?->subject;
                     $teacher = $course->teacher;
                     $schedules = $course->classSchedules ?? collect();
-
-                    // Count enrolled students
-                    $enrolledCount = CourseEnrollment::where('course_id', $course->id)
-                        ->where('status', 'enrolled')
-                        ->count();
 
                     return [
                         'course_id' => $course->id,
@@ -117,7 +116,7 @@ class StudentCourseController extends Controller
                         'semester' => $course->semester,
                         'academic_year' => $course->academic_year,
                         'capacity' => $course->capacity ?? null,
-                        'enrolled_count' => $enrolledCount,
+                        'enrolled_count' => $course->enrolled_count, // Uses the eager loaded count
                         'schedule' => $schedules->map(fn($s) => [
                             'day' => $s->day_of_week,
                             'start_time' => $s->start_time,

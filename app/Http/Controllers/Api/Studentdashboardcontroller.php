@@ -28,25 +28,17 @@ class StudentDashboardController extends Controller
             $user = $request->user();
 
             if (!$user) {
-                Log::warning('Dashboard: No authenticated user');
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
                 ], 401);
             }
 
-            Log::info('Dashboard request', [
-                'user_id' => $user->id,
-                'email' => $user->email,
-                'role' => $user->role,
-            ]);
-
             $student = Student::where('user_id', $user->id)
                 ->with(['user', 'department'])
                 ->first();
 
             if (!$student) {
-                Log::warning('Dashboard: Student profile not found', ['user_id' => $user->id]);
                 return response()->json([
                     'success' => false,
                     'message' => 'Student profile not found',
@@ -193,24 +185,16 @@ class StudentDashboardController extends Controller
 
             return $grades->map(function ($grade) {
                 $subject = $grade->course?->majorSubject?->subject;
-
-                $createdAt = $grade->created_at;
-                if ($createdAt instanceof \Carbon\Carbon) {
-                    $createdAtFormatted = $createdAt->toISOString();
-                } elseif (is_string($createdAt) && !empty($createdAt)) {
-                    $createdAtFormatted = $createdAt;
-                } else {
-                    $createdAtFormatted = null;
-                }
+                $date = $grade->created_at instanceof Carbon ? $grade->created_at->toISOString() : $grade->created_at;
 
                 return [
                     'id' => $grade->id,
                     'course_code' => $subject?->subject_code ?? '',
                     'course_name' => $subject?->subject_name ?? '',
-                    'assignment_name' => $grade->assignment_name ?? null,
+                    'assignment_name' => $grade->assignment_name ?? 'Assignment',
                     'score' => (float) ($grade->score ?? 0),
-                    'total_points' => (float) ($grade->total_points ?? 0),
-                    'created_at' => $createdAtFormatted,
+                    'total_points' => (float) ($grade->total_points ?? 100),
+                    'created_at' => $date,
                 ];
             })->toArray();
         } catch (\Throwable $e) {
@@ -222,11 +206,11 @@ class StudentDashboardController extends Controller
     private function getGPAData(Student $student): float
     {
         try {
-            $gpaData = Grade::where('student_id', $student->id)
+            $avg = Grade::where('student_id', $student->id)
                 ->whereNotNull('grade_point')
                 ->avg('grade_point');
 
-            return round((float) ($gpaData ?? 0), 2);
+            return round((float) ($avg ?? 0), 2);
         } catch (\Throwable $e) {
             Log::error('Error in getGPAData: ' . $e->getMessage());
             return 0.0;
@@ -244,6 +228,7 @@ class StudentDashboardController extends Controller
                 return [];
             }
 
+            // Get pending and recent assignments
             $assignments = Assignment::whereIn('course_id', $enrolledCourseIds)
                 ->with([
                     'course.majorSubject.subject',
@@ -252,18 +237,18 @@ class StudentDashboardController extends Controller
                     }
                 ])
                 ->orderBy('due_date', 'ASC')
+                ->take(20) // Limit to relevant ones
                 ->get();
 
             return $assignments->map(function ($assignment) {
                 $subject = $assignment->course?->majorSubject?->subject;
 
+                // Format due date safely
                 $dueDate = $assignment->due_date;
-                if ($dueDate instanceof \Carbon\Carbon) {
+                if ($dueDate instanceof Carbon) {
                     $dueDateFormatted = $dueDate->format('Y-m-d');
-                } elseif (is_string($dueDate) && !empty($dueDate)) {
-                    $dueDateFormatted = $dueDate;
                 } else {
-                    $dueDateFormatted = null;
+                    $dueDateFormatted = (string) $dueDate;
                 }
 
                 return [
@@ -274,18 +259,9 @@ class StudentDashboardController extends Controller
                     'due_time' => $assignment->due_time,
                     'points' => (float) ($assignment->points ?? 0),
                     'submissions' => $assignment->submissions->map(function ($s) {
-                        $submittedAt = $s->submitted_at;
-                        if ($submittedAt instanceof \Carbon\Carbon) {
-                            $submittedAtFormatted = $submittedAt->toISOString();
-                        } elseif (is_string($submittedAt) && !empty($submittedAt)) {
-                            $submittedAtFormatted = $submittedAt;
-                        } else {
-                            $submittedAtFormatted = null;
-                        }
-
                         return [
                             'id' => $s->id,
-                            'submitted_at' => $submittedAtFormatted,
+                            'submitted_at' => $s->submitted_at instanceof Carbon ? $s->submitted_at->toISOString() : $s->submitted_at,
                             'score' => (float) ($s->score ?? 0),
                         ];
                     })->toArray(),
@@ -308,14 +284,15 @@ class StudentDashboardController extends Controller
                 ")
                 ->first();
 
-            $total = $stats->total ?? 0;
-            $present = $stats->present ?? 0;
+            $total = (int) ($stats->total ?? 0);
+            $present = (int) ($stats->present ?? 0);
+            $absent = (int) ($stats->absent ?? 0);
             $percentage = $total > 0 ? ($present / $total) * 100 : 0;
 
             return [
-                'total' => (int) $total,
-                'present' => (int) $present,
-                'absent' => (int) ($stats->absent ?? 0),
+                'total' => $total,
+                'present' => $present,
+                'absent' => $absent,
                 'percentage' => round($percentage, 2),
             ];
         } catch (\Throwable $e) {
@@ -332,34 +309,35 @@ class StudentDashboardController extends Controller
     private function getConversationsData($user): array
     {
         try {
-            $sentTo = Message::where('s_id', $user->id)->select('r_id as user_id')->distinct();
-            $receivedFrom = Message::where('r_id', $user->id)->select('s_id as user_id')->distinct();
-            $conversationUserIds = $sentTo->union($receivedFrom)->pluck('user_id');
+            // Optimized query: Get all messages involving user, sort by latest
+            $messages = Message::where('s_id', $user->id)
+                ->orWhere('r_id', $user->id)
+                ->with(['sender', 'receiver'])
+                ->orderBy('created_at', 'desc')
+                ->limit(50) // Fetch reasonable amount of recent history
+                ->get();
 
-            $conversations = [];
-            foreach ($conversationUserIds as $userId) {
-                $latestMessage = Message::where(function ($query) use ($user, $userId) {
-                    $query->where('s_id', $user->id)->where('r_id', $userId);
-                })->orWhere(function ($query) use ($user, $userId) {
-                    $query->where('s_id', $userId)->where('r_id', $user->id);
-                })
-                    ->with(['sender', 'receiver'])
-                    ->orderBy('created_at', 'DESC')
-                    ->first();
+            // Group by other participant to get unique conversations
+            $conversations = $messages->map(function ($msg) use ($user) {
+                $isSender = $msg->s_id == $user->id;
+                $otherId = $isSender ? $msg->r_id : $msg->s_id;
+                $otherUser = $isSender ? $msg->receiver : $msg->sender;
 
-                if ($latestMessage) {
-                    $participant = $latestMessage->s_id == $user->id
-                        ? $latestMessage->receiver
-                        : $latestMessage->sender;
+                if (!$otherUser) return null;
 
-                    $conversations[] = [
-                        'id' => $userId,
-                        'participant_name' => $participant?->name ?? 'Unknown',
-                        'last_message' => $latestMessage->content,
-                        'last_message_time' => $latestMessage->created_at->toISOString(),
-                    ];
-                }
-            }
+                return [
+                    'id' => $otherId,
+                    'participant_name' => $otherUser->name ?? 'Unknown',
+                    'last_message' => $msg->content,
+                    'last_message_time' => $msg->created_at instanceof Carbon ? $msg->created_at->toISOString() : $msg->created_at,
+                    'timestamp' => $msg->created_at instanceof Carbon ? $msg->created_at->timestamp : 0,
+                ];
+            })
+            ->filter()
+            ->unique('id')
+            ->values()
+            ->take(5) // Just top 5 for dashboard
+            ->toArray();
 
             return $conversations;
         } catch (\Throwable $e) {
