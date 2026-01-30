@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Schema;
 use App\Models\Student;
 use App\Models\User;
 use App\Models\Major;
+use App\Services\ClassGroupAllocator;
+use App\Services\EnrollmentService;
 
 class RegistrationController extends Controller
 {
@@ -800,6 +802,23 @@ public function index(Request $request)
                 User::where('email', $registration->personal_email)
                     ->where('role', 'register')
                     ->update(['role' => 'student']);
+            }
+
+            // 🔥 AUTO LOGIC: Assign Class Group & Auto Enroll Courses
+            $majorId = (int)($registration->major_id ?? 0);
+            $academicYear = (string)($registration->academic_year ?? '');
+            $studentId = (int)($student->student_id ?? 0);
+            $shift = $registration->shift ?? null;
+
+            if ($majorId > 0 && $academicYear !== '' && $studentId > 0) {
+                $allocator = app(ClassGroupAllocator::class);
+                $enrollService = app(EnrollmentService::class);
+
+                $group = $allocator->getOrCreateAvailableGroup($majorId, $academicYear, $semester, $shift, 40);
+                $allocator->assignStudentToGroup($studentId, (int)$group->id, $academicYear, $semester);
+
+                // Auto Enroll
+                $enrollService->autoEnrollStudent($studentId, $majorId, $academicYear, $semester, (int)$group->id);
             }
 
             DB::commit();

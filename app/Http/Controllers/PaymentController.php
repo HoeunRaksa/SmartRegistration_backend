@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use App\Models\User;
 use App\Services\ClassGroupAllocator;
+use App\Services\EnrollmentService;
 
 class PaymentController extends Controller
 {
@@ -575,16 +576,23 @@ class PaymentController extends Controller
             // ✅ auto assign class group
             if ($majorId > 0 && $academicYear !== '' && $studentId > 0) {
                 $allocator = app(ClassGroupAllocator::class);
+                $enrollService = app(EnrollmentService::class);
 
                 if (($parsed['type'] ?? '') === 'YEAR') {
                     foreach ([1, 2] as $sem) {
                         $group = $allocator->getOrCreateAvailableGroup($majorId, $academicYear, $sem, $shift, 40);
                         $allocator->assignStudentToGroup($studentId, (int)$group->id, $academicYear, $sem);
+                        
+                        // 🔥 AUTO ENROLL COURSES
+                        $enrollService->autoEnrollStudent($studentId, $majorId, $academicYear, $sem, (int)$group->id);
                     }
                 } else {
                     $sem = $this->normalizeSemester((int)($parsed['semester'] ?? 1));
                     $group = $allocator->getOrCreateAvailableGroup($majorId, $academicYear, $sem, $shift, 40);
                     $allocator->assignStudentToGroup($studentId, (int)$group->id, $academicYear, $sem);
+
+                    // 🔥 AUTO ENROLL COURSES
+                    $enrollService->autoEnrollStudent($studentId, $majorId, $academicYear, $sem, (int)$group->id);
                 }
             }
 
