@@ -8,6 +8,7 @@ use App\Models\CourseEnrollment;
 use App\Models\Teacher;
 use App\Models\ClassSession;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class TeacherDashboardController extends Controller

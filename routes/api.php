@@ -209,15 +209,23 @@ Route::middleware(['auth:sanctum', 'role:teacher'])->prefix('teacher')->group(fu
     // Grades
     Route::get('/grades', [TeacherGradeController::class, 'index']);
     Route::post('/grades', [TeacherGradeController::class, 'store']);
+    Route::put('/grades/{id}', [TeacherGradeController::class, 'update']);
+    Route::delete('/grades/{id}', [TeacherGradeController::class, 'destroy']);
 
     // Attendance
     Route::get('/attendance/stats', [TeacherAttendanceController::class, 'stats']);
     Route::get('/attendance/sessions', [TeacherAttendanceController::class, 'getSessions']);
     Route::post('/attendance/mark', [TeacherAttendanceController::class, 'markBulk']);
+    Route::put('/attendance/{id}', [TeacherAttendanceController::class, 'update']);
+
+    // Class Sessions (teacher can create sessions for their courses)
+    Route::post('/class-sessions', [TeacherAttendanceController::class, 'createSession']);
 
     // Assignments
     Route::get('/assignments', [TeacherAssignmentController::class, 'index']);
     Route::post('/assignments', [TeacherAssignmentController::class, 'store']);
+    Route::put('/assignments/{id}', [TeacherAssignmentController::class, 'update']);
+    Route::delete('/assignments/{id}', [TeacherAssignmentController::class, 'destroy']);
     Route::get('/assignments/{id}/submissions', [TeacherAssignmentController::class, 'getSubmissions']);
     Route::put('/submissions/{id}/grade', [TeacherAssignmentController::class, 'gradeSubmission']);
 

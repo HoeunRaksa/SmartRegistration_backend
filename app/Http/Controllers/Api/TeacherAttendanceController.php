@@ -115,4 +115,73 @@ class TeacherAttendanceController extends Controller
             return response()->json(['message' => 'Failed to mark attendance'], 500);
         }
     }
+
+    /**
+     * Update a single attendance record
+     * PUT /api/teacher/attendance/{id}
+     */
+    public function update(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'status' => 'required|string|in:present,absent,late,excused',
+        ]);
+
+        try {
+            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+
+            $record = AttendanceRecord::where('id', $id)
+                ->whereHas('classSession.course', fn($q) => $q->where('teacher_id', $teacher->id))
+                ->firstOrFail();
+
+            $record->update(['status' => $validated['status']]);
+
+            return response()->json([
+                'message' => 'Attendance updated successfully',
+                'data' => $record
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('TeacherAttendanceController@update error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to update attendance'], 500);
+        }
+    }
+
+    /**
+     * Create a new class session for a teacher's course
+     * POST /api/teacher/class-sessions
+     */
+    public function createSession(Request $request)
+    {
+        $validated = $request->validate([
+            'course_id'    => 'required|exists:courses,id',
+            'session_date' => 'required|date',
+            'start_time'   => 'required|string',
+            'end_time'     => 'required|string',
+            'room'         => 'nullable|string|max:255',
+        ]);
+
+        try {
+            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+
+            // Verify teacher owns this course
+            Course::where('id', $validated['course_id'])
+                ->where('teacher_id', $teacher->id)
+                ->firstOrFail();
+
+            $session = ClassSession::create([
+                'course_id'    => $validated['course_id'],
+                'session_date' => $validated['session_date'],
+                'start_time'   => $validated['start_time'],
+                'end_time'     => $validated['end_time'],
+                'room'         => $validated['room'] ?? null,
+            ]);
+
+            return response()->json([
+                'message' => 'Class session created successfully',
+                'data' => $session
+            ], 201);
+        } catch (\Throwable $e) {
+            Log::error('TeacherAttendanceController@createSession error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to create class session'], 500);
+        }
+    }
 }

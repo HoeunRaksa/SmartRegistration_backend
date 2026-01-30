@@ -106,6 +106,61 @@ class TeacherAssignmentController extends Controller
     }
 
     /**
+     * Update an existing assignment
+     * PUT /api/teacher/assignments/{id}
+     */
+    public function update(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'title'       => 'sometimes|required|string|max:255',
+            'description' => 'sometimes|required|string',
+            'points'      => 'sometimes|required|numeric|min:0',
+            'due_date'    => 'sometimes|required|date',
+            'due_time'    => 'nullable|string',
+        ]);
+
+        try {
+            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+
+            $assignment = Assignment::where('id', $id)
+                ->whereHas('course', fn($q) => $q->where('teacher_id', $teacher->id))
+                ->firstOrFail();
+
+            $assignment->update($validated);
+
+            return response()->json([
+                'message' => 'Assignment updated successfully',
+                'data' => $assignment
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('TeacherAssignmentController@update error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to update assignment'], 500);
+        }
+    }
+
+    /**
+     * Delete an assignment
+     * DELETE /api/teacher/assignments/{id}
+     */
+    public function destroy(Request $request, $id)
+    {
+        try {
+            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+
+            $assignment = Assignment::where('id', $id)
+                ->whereHas('course', fn($q) => $q->where('teacher_id', $teacher->id))
+                ->firstOrFail();
+
+            $assignment->delete();
+
+            return response()->json(['message' => 'Assignment deleted successfully'], 200);
+        } catch (\Throwable $e) {
+            Log::error('TeacherAssignmentController@destroy error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to delete assignment'], 500);
+        }
+    }
+
+    /**
      * Get submissions for an assignment
      * GET /api/teacher/assignments/{id}/submissions
      */

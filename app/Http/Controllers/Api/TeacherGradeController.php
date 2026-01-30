@@ -95,6 +95,77 @@ class TeacherGradeController extends Controller
         }
     }
 
+    /**
+     * Update an existing grade
+     * PUT /api/teacher/grades/{id}
+     */
+    public function update(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'course_id'       => 'sometimes|required|exists:courses,id',
+            'student_id'      => 'sometimes|required|exists:students,id',
+            'assignment_name' => 'sometimes|required|string|max:255',
+            'score'           => 'required|numeric|min:0',
+            'total_points'    => 'required|numeric|min:1',
+            'feedback'        => 'nullable|string',
+        ]);
+
+        try {
+            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+
+            $grade = Grade::findOrFail($id);
+
+            // Verify teacher owns the course this grade belongs to
+            Course::where('id', $grade->course_id)
+                ->where('teacher_id', $teacher->id)
+                ->firstOrFail();
+
+            $percentage = ($validated['score'] / $validated['total_points']) * 100;
+            $letterGrade = $this->calculateLetterGrade($percentage);
+
+            $grade->update([
+                'score'        => $validated['score'],
+                'total_points' => $validated['total_points'],
+                'letter_grade' => $letterGrade,
+                'feedback'     => $validated['feedback'] ?? $grade->feedback,
+                'assignment_name' => $validated['assignment_name'] ?? $grade->assignment_name,
+            ]);
+
+            return response()->json([
+                'message' => 'Grade updated successfully',
+                'data' => $grade
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('TeacherGradeController@update error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to update grade'], 500);
+        }
+    }
+
+    /**
+     * Delete a grade
+     * DELETE /api/teacher/grades/{id}
+     */
+    public function destroy(Request $request, $id)
+    {
+        try {
+            $teacher = Teacher::where('user_id', $request->user()->id)->firstOrFail();
+
+            $grade = Grade::findOrFail($id);
+
+            // Verify teacher owns the course this grade belongs to
+            Course::where('id', $grade->course_id)
+                ->where('teacher_id', $teacher->id)
+                ->firstOrFail();
+
+            $grade->delete();
+
+            return response()->json(['message' => 'Grade deleted successfully'], 200);
+        } catch (\Throwable $e) {
+            Log::error('TeacherGradeController@destroy error: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to delete grade'], 500);
+        }
+    }
+
     private function calculateLetterGrade($p) {
         if ($p >= 90) return 'A';
         if ($p >= 80) return 'B';
