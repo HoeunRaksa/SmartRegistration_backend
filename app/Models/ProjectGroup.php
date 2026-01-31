@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class ProjectGroup extends Model
 {
-    protected $fillable = ['course_id', 'teacher_id', 'name', 'max_capacity'];
+    protected $fillable = ['course_id', 'teacher_id', 'creator_id', 'name', 'max_capacity'];
 
     public function course()
     {

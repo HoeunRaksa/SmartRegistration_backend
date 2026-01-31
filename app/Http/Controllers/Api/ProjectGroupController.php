@@ -34,14 +34,104 @@ class ProjectGroupController extends Controller
             'max_capacity' => 'nullable|integer|min:1|max:50',
         ]);
 
+        $course = \App\Models\Course::findOrFail($validated['course_id']);
+        
+        // If student is creating, they must be enrolled
+        if ($request->user()->role === 'student') {
+            $isEnrolled = \App\Models\CourseEnrollment::where('course_id', $course->id)
+                ->where('student_id', $request->user()->student->id)
+                ->exists();
+            if (!$isEnrolled) {
+                return response()->json(['success' => false, 'message' => 'You are not enrolled in this course.'], 403);
+            }
+        }
+
         $group = ProjectGroup::create([
             'course_id' => $validated['course_id'],
-            'teacher_id' => $request->user()->teacher->id ?? 1, // Fallback if user model differs
+            'teacher_id' => $course->teacher_id ?? 1,
+            'creator_id' => $request->user()->id,
             'name' => $validated['name'],
             'max_capacity' => $validated['max_capacity'] ?? 10,
         ]);
 
-        return response()->json(['success' => true, 'data' => $group], 201);
+        // Auto-join the creator if they are a student
+        if ($request->user()->role === 'student') {
+            ProjectGroupMember::create([
+                'project_group_id' => $group->id,
+                'student_id' => $request->user()->student->id,
+            ]);
+        }
+
+        return response()->json(['success' => true, 'data' => $group->load('students')], 201);
+    }
+
+    public function join(Request $request, $id)
+    {
+        $group = ProjectGroup::findOrFail($id);
+        $studentId = $request->user()->student->id;
+
+        // Ensure student is enrolled in the course
+        $enrolled = \App\Models\CourseEnrollment::where('course_id', $group->course_id)
+            ->where('student_id', $studentId)
+            ->exists();
+        if (!$enrolled) {
+            return response()->json(['success' => false, 'message' => 'You are not enrolled in this course.'], 403);
+        }
+
+        // Check if already in a group for THIS course
+        $alreadyInGroup = ProjectGroupMember::whereHas('group', function($q) use ($group) {
+            $q->where('course_id', $group->course_id);
+        })->where('student_id', $studentId)->exists();
+
+        if ($alreadyInGroup) {
+            return response()->json(['success' => false, 'message' => 'You are already in a group for this course.'], 400);
+        }
+
+        // Check capacity
+        if ($group->students()->count() >= $group->max_capacity) {
+            return response()->json(['success' => false, 'message' => 'Group is full.'], 400);
+        }
+
+        ProjectGroupMember::create([
+            'project_group_id' => $group->id,
+            'student_id' => $studentId,
+        ]);
+
+        return response()->json(['success' => true, 'data' => $group->load('students')]);
+    }
+
+    public function leave(Request $request, $id)
+    {
+        $group = ProjectGroup::findOrFail($id);
+        $studentId = $request->user()->student->id;
+
+        $member = ProjectGroupMember::where('project_group_id', $id)
+            ->where('student_id', $studentId)
+            ->first();
+
+        if (!$member) {
+            return response()->json(['success' => false, 'message' => 'You are not a member of this group.'], 400);
+        }
+
+        $member->delete();
+
+        // If group is empty, maybe delete it or leave it? User didn't specify. 
+        // For now, let's keep it.
+
+        return response()->json(['success' => true, 'message' => 'Left group successfully.']);
+    }
+
+    public function destroy(Request $request, $id)
+    {
+        $group = ProjectGroup::findOrFail($id);
+        
+        // Only teacher or creator can delete
+        if ($request->user()->role !== 'teacher' && $group->creator_id !== $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'Only the team creator or instructor can delete this team.'], 403);
+        }
+
+        $group->delete();
+        return response()->json(['success' => true, 'message' => 'Group deleted.']);
     }
 
     public function autoAssign(Request $request)

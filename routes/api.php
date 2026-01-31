@@ -168,8 +168,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/friend-requests/{id}/accept', [FriendRequestController::class, 'acceptRequest']);
     });
 
-    // Project Groups (Common View)
+    // Project Groups
     Route::get('/project-groups', [ProjectGroupController::class, 'index']);
+    Route::post('/project-groups', [ProjectGroupController::class, 'store']);
+    Route::post('/project-groups/{id}/join', [ProjectGroupController::class, 'join']);
+    Route::post('/project-groups/{id}/leave', [ProjectGroupController::class, 'leave']);
+    Route::delete('/project-groups/{id}', [ProjectGroupController::class, 'destroy']);
+    Route::post('/project-groups/auto-assign', [ProjectGroupController::class, 'autoAssign']);
 
     // --- Enhanced Chat Routes ---
     Route::get('/conversations', [ChatController::class, 'conversations']);
