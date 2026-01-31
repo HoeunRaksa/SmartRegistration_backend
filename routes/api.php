@@ -57,6 +57,7 @@ use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\ProjectGroupController;
 use App\Http\Controllers\Api\FriendRequestController;
+use App\Http\Controllers\Api\CertificateRequestController;
 
 use Illuminate\Support\Facades\Broadcast;
 
