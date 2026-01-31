@@ -28,7 +28,7 @@ class AuthController extends Controller
 
         $token = $user->createToken('api-token')->plainTextToken;
 
-        // Create HttpOnly, Secure, SameSite=None cookie
+        // Create HttpOnly, Secure, SameSite=None cookie (backup/enhanced security)
         // cookie(name, value, minutes, path, domain, secure, httpOnly, raw, sameSite)
         $cookie = cookie('token', $token, 60 * 24 * 30, '/', null, true, true, false, 'None');
 
@@ -42,8 +42,7 @@ class AuthController extends Controller
                     ? url($user->profile_picture_path)
                     : null,
             ],
-            // Token removed from response body for security
-            // It's only available in the HttpOnly cookie
+            'token' => $token, // Also in response for immediate compatibility
         ])->withCookie($cookie);
     }
 
