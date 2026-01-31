@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Auth;
 use App\Models\User;
 
@@ -27,6 +28,10 @@ class AuthController extends Controller
 
         $token = $user->createToken('api-token')->plainTextToken;
 
+        // Create HttpOnly, Secure, SameSite=None cookie
+        // cookie(name, value, minutes, path, domain, secure, httpOnly, raw, sameSite)
+        $cookie = cookie('token', $token, 60 * 24 * 30, '/', null, true, true, false, 'None');
+
         return response()->json([
             'user' => [
                 'id'    => $user->id,
@@ -38,7 +43,7 @@ class AuthController extends Controller
                     : null,
             ],
             'token' => $token,
-        ]);
+        ])->withCookie($cookie);
     }
 
     public function logout(Request $request)
@@ -50,8 +55,11 @@ class AuthController extends Controller
             $user->tokens()->delete();
         }
 
+        // Clear cookie
+        $cookie = cookie()->forget('token');
+
         return response()->json([
             'message' => 'Logged out',
-        ]);
+        ])->withCookie($cookie);
     }
 }
