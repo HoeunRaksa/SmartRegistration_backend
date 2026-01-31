@@ -42,7 +42,8 @@ class AuthController extends Controller
                     ? url($user->profile_picture_path)
                     : null,
             ],
-            'token' => $token,
+            // Token removed from response body for security
+            // It's only available in the HttpOnly cookie
         ])->withCookie($cookie);
     }
 

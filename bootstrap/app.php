@@ -3,6 +3,7 @@
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\VerifyCsrfToken;
+use App\Http\Middleware\AuthenticateWithCookie;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -37,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // ✅ API middleware (FIXED)
         $middleware->api(prepend: [
             HandleCors::class, // 🔥 REQUIRED FOR 403 FIX (MOVED TO TOP)
+            AuthenticateWithCookie::class, // Extract token from cookie
             \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ]);
