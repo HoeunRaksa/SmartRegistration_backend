@@ -65,10 +65,18 @@ class TeacherAttendanceController extends Controller
         try {
             $user = $request->user();
             $teacher = Teacher::where('user_id', $user->id)->first();
+            
+            Log::info('TeacherAttendanceController@getSessions - User ID: ' . $user->id);
+            
             if (!$teacher) {
+                Log::warning('TeacherAttendanceController@getSessions - No teacher found for user_id: ' . $user->id);
                 return response()->json(['data' => []], 200);
             }
+            
+            Log::info('TeacherAttendanceController@getSessions - Teacher ID: ' . $teacher->id);
+            
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
+            Log::info('TeacherAttendanceController@getSessions - Course IDs: ' . $courseIds->toJson());
 
             $sessions = ClassSession::with(['course.majorSubject.subject'])
                 ->whereIn('course_id', $courseIds)
@@ -81,13 +89,18 @@ class TeacherAttendanceController extends Controller
                         'course_name' => $s->course?->majorSubject?->subject?->subject_name ?? $s->course?->id ?? '',
                         'date' => $s->session_date,
                         'time' => ($s->start_time ?? '') . ' - ' . ($s->end_time ?? ''),
+                        'start_time' => $s->start_time,
+                        'end_time' => $s->end_time,
                         'room' => $s->room ?? '',
                     ];
                 });
 
+            Log::info('TeacherAttendanceController@getSessions - Sessions count: ' . $sessions->count());
+
             return response()->json(['data' => $sessions], 200);
         } catch (\Throwable $e) {
             Log::error('TeacherAttendanceController@getSessions error: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
             return response()->json(['message' => 'Failed to load sessions'], 500);
         }
     }
