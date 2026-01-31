@@ -115,8 +115,9 @@ class TeacherAttendanceController extends Controller
             'class_session_id' => 'required|exists:class_sessions,id',
             'attendance'       => 'required|array',
             'attendance.*.student_id' => 'required|exists:students,id',
-            'attendance.*.status'     => 'required|string|in:present,absent,late,excused',
+            'attendance.*.status'      => 'required|string|in:present,absent,late,excused',
             'attendance.*.remarks'    => 'nullable|string',
+            'attendance.*.notes'      => 'nullable|string',
         ]);
 
         try {
@@ -132,8 +133,8 @@ class TeacherAttendanceController extends Controller
                         'student_id'       => $item['student_id'],
                     ],
                     [
-                        'status'  => $item['status'],
-                        'remarks' => $item['remarks'] ?? null,
+                        'status' => $item['status'],
+                        'notes'  => $item['notes'] ?? $item['remarks'] ?? null,
                     ]
                 );
             }
