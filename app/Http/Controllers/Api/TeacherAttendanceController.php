@@ -9,6 +9,7 @@ use App\Models\Course;
 use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class TeacherAttendanceController extends Controller
 {
@@ -125,6 +126,28 @@ class TeacherAttendanceController extends Controller
             $session = ClassSession::where('id', $validated['class_session_id'])
                 ->whereHas('course', fn($q) => $q->where('teacher_id', $teacher->id))
                 ->firstOrFail();
+
+            // 🔥 STRICT TIME ENFORCEMENT
+            $now = Carbon::now('Asia/Phnom_Penh'); 
+            $today = $now->toDateString();
+            $currentTime = $now->format('H:i');
+            
+            $sessionDate = Carbon::parse($session->session_date)->toDateString();
+
+            if ($sessionDate !== $today) {
+                return response()->json(['message' => 'Attendance can only be marked on the day of class.'], 403);
+            }
+
+            $startTime = Carbon::parse($session->start_time)->subMinutes(15)->format('H:i');
+            $endTime = Carbon::parse($session->end_time)->addMinutes(60)->format('H:i'); // 1 hour grace period
+
+            if ($currentTime < $startTime || $currentTime > $endTime) {
+                return response()->json([
+                    'message' => "Attendance window closed. Marking is only allowed between " . 
+                                Carbon::parse($session->start_time)->format('H:i') . " and " . 
+                                Carbon::parse($session->end_time)->format('H:i')
+                ], 403);
+            }
 
             foreach ($validated['attendance'] as $item) {
                 AttendanceRecord::updateOrCreate(
