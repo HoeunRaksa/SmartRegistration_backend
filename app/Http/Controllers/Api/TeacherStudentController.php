@@ -28,6 +28,7 @@ class TeacherStudentController extends Controller
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
 
             $enrollments = CourseEnrollment::with(['student.user', 'student.department', 'course.majorSubject.subject', 'course.classGroup'])
+                ->whereHas('student.user') // ONLY students with a user account
                 ->whereIn('course_id', $courseIds)
                 ->where('status', 'enrolled')
                 ->get();
@@ -36,7 +37,7 @@ class TeacherStudentController extends Controller
 
             foreach ($enrollments as $e) {
                 $s = $e->student;
-                if (!$s) continue;
+                if (!$s || !$s->user_id || !$s->user) continue; // Double check user exists
 
                 if (!isset($studentsMap[$s->id])) {
                     $profileUrl = null;
