@@ -79,11 +79,29 @@ class TeacherAttendanceController extends Controller
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
             Log::info('TeacherAttendanceController@getSessions - Course IDs: ' . $courseIds->toJson());
 
+            $now = Carbon::now('Asia/Phnom_Penh');
+            $today = $now->toDateString();
+            $currentTime = $now->format('H:i');
+            
             $sessions = ClassSession::with(['course.majorSubject.subject'])
                 ->whereIn('course_id', $courseIds)
                 ->orderByDesc('session_date')
                 ->get()
-                ->map(function($s) {
+                ->map(function($s) use ($today, $currentTime) {
+                    $sessionDate = Carbon::parse($s->session_date)->toDateString();
+                    $createdDate = $s->created_at ? Carbon::parse($s->created_at)->toDateString() : null;
+                    
+                    // Check if manually created (created on same day as session)
+                    $isManual = $createdDate && $createdDate === $sessionDate;
+                    
+                    // Check if this is the currently active session
+                    $isCurrent = false;
+                    if ($sessionDate === $today && $s->start_time && $s->end_time) {
+                        $start = Carbon::parse($s->start_time)->subMinutes(15)->format('H:i');
+                        $end = Carbon::parse($s->end_time)->addMinutes(60)->format('H:i');
+                        $isCurrent = $currentTime >= $start && $currentTime <= $end;
+                    }
+                    
                     return [
                         'id' => $s->id,
                         'course_id' => $s->course_id,
@@ -93,6 +111,9 @@ class TeacherAttendanceController extends Controller
                         'start_time' => $s->start_time,
                         'end_time' => $s->end_time,
                         'room' => $s->room ?? '',
+                        'is_manual' => $isManual,
+                        'is_current' => $isCurrent,
+                        'is_today' => $sessionDate === $today,
                     ];
                 });
 
@@ -127,26 +148,33 @@ class TeacherAttendanceController extends Controller
                 ->whereHas('course', fn($q) => $q->where('teacher_id', $teacher->id))
                 ->firstOrFail();
 
-            // 🔥 STRICT TIME ENFORCEMENT
+            // 🔥 TIME ENFORCEMENT - Skip for manually created sessions
             $now = Carbon::now('Asia/Phnom_Penh'); 
             $today = $now->toDateString();
             $currentTime = $now->format('H:i');
             
             $sessionDate = Carbon::parse($session->session_date)->toDateString();
+            
+            // Check if this is a manual session created by teacher (created today or has teacher_created flag)
+            $isManualSession = $session->created_at && 
+                               Carbon::parse($session->created_at)->toDateString() === $sessionDate;
+            
+            // Only enforce strict time rules for auto-generated system sessions
+            if (!$isManualSession) {
+                if ($sessionDate !== $today) {
+                    return response()->json(['message' => 'Attendance can only be marked on the day of class.'], 403);
+                }
 
-            if ($sessionDate !== $today) {
-                return response()->json(['message' => 'Attendance can only be marked on the day of class.'], 403);
-            }
+                $startTime = Carbon::parse($session->start_time)->subMinutes(15)->format('H:i');
+                $endTime = Carbon::parse($session->end_time)->addMinutes(60)->format('H:i'); // 1 hour grace period
 
-            $startTime = Carbon::parse($session->start_time)->subMinutes(15)->format('H:i');
-            $endTime = Carbon::parse($session->end_time)->addMinutes(60)->format('H:i'); // 1 hour grace period
-
-            if ($currentTime < $startTime || $currentTime > $endTime) {
-                return response()->json([
-                    'message' => "Attendance window closed. Marking is only allowed between " . 
-                                Carbon::parse($session->start_time)->format('H:i') . " and " . 
-                                Carbon::parse($session->end_time)->format('H:i')
-                ], 403);
+                if ($currentTime < $startTime || $currentTime > $endTime) {
+                    return response()->json([
+                        'message' => "Attendance window closed. Marking is only allowed between " . 
+                                    Carbon::parse($session->start_time)->format('H:i') . " and " . 
+                                    Carbon::parse($session->end_time)->format('H:i')
+                    ], 403);
+                }
             }
 
             foreach ($validated['attendance'] as $item) {
