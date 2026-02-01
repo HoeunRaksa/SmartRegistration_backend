@@ -341,25 +341,49 @@ class AdminEnrollmentController extends Controller
     public function updateStatus(Request $request, $id)
     {
         $data = $request->validate([
-            'status' => ['required', Rule::in(['enrolled', 'completed', 'dropped'])],
+            'status' => ['required', 'string'],
         ]);
 
+        $status = strtolower(trim((string) $data['status']));
+        if (!in_array($status, ['enrolled', 'completed', 'dropped'], true)) {
+            return response()->json([
+                'message' => 'Invalid status value.',
+            ], 422);
+        }
+
         try {
-            $enrollment = CourseEnrollment::findOrFail($id);
+            $enrollment = is_numeric($id) ? CourseEnrollment::find((int) $id) : null;
 
-            $update = ['status' => $data['status']];
+            if (!$enrollment) {
+                $studentId = $request->input('student_id');
+                $courseId = $request->input('course_id');
+                if ($studentId && $courseId) {
+                    $enrollment = CourseEnrollment::where('student_id', $studentId)
+                        ->where('course_id', $courseId)
+                        ->first();
+                }
+            }
 
-            if ($data['status'] === 'enrolled') {
+            if (!$enrollment) {
+                return response()->json([
+                    'message' => 'Enrollment not found.',
+                ], 404);
+            }
+
+            $update = ['status' => $status];
+
+            if ($status === 'enrolled') {
                 $update['enrolled_at'] = now();
                 $update['dropped_at']  = null;
                 $update['progress']    = 0;
             }
 
-            if ($data['status'] === 'completed') {
+            if ($status === 'completed') {
                 $update['progress'] = 100;
+                $update['dropped_at'] = null;
             }
 
-            if ($data['status'] === 'dropped') {
+            if ($status === 'dropped') {
                 $update['dropped_at'] = now();
             }
 
