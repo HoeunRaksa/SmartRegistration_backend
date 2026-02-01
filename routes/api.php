@@ -276,6 +276,9 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 
         // Dashboard
         Route::get('/dashboard/stats', [AdminDashboardController::class, 'getStats']);
+        
+        // Audit Logs
+        Route::get('/audit-logs', [\App\Http\Controllers\Api\AuditLogController::class, 'index']);
 
         // Enrollments
         Route::get('/enrollments', [AdminEnrollmentController::class, 'index']);
