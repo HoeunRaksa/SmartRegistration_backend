@@ -12,16 +12,16 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // 1. Drop the unique index first
+        // 1. Drop the original foreign keys first (MySQL requirement)
         Schema::table('friend_requests', function (Blueprint $table) {
-            $table->dropUnique(['sender_id', 'receiver_id']);
-        });
-
-        // 2. Drop the original foreign keys - need to find their names or use the standard convention
-        // Usually: friend_requests_sender_id_foreign
-        Schema::table('friend_requests', function (Blueprint $table) {
+            // We use array syntax which Laravel resolves to standard names
             $table->dropForeign(['sender_id']);
             $table->dropForeign(['receiver_id']);
+        });
+
+        // 2. Drop the unique index
+        Schema::table('friend_requests', function (Blueprint $table) {
+            $table->dropUnique(['sender_id', 'receiver_id']);
         });
 
         // 3. Migrate existing data if any (mapping student_id to user_id)
@@ -38,7 +38,6 @@ return new class extends Migration
                         'receiver_id' => $receiverUser->user_id
                     ]);
             } else {
-                // If student record not found, delete the request?
                 DB::table('friend_requests')->where('id', $req->id)->delete();
             }
         }
@@ -60,9 +59,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Reverting this is complex because we'd need to map user_id back to student_id,
-        // which might not even exist if the user is a teacher.
-        // For simplicity, we just clear the table if reversing.
         Schema::table('friend_requests', function (Blueprint $table) {
             $table->dropUnique(['sender_id', 'receiver_id']);
             $table->dropForeign(['sender_id']);
