@@ -655,7 +655,8 @@ class PaymentController extends Controller
                     'type' => 'PERIOD',
                     'academic_year' => $p->academic_year,
                     'semester' => $p->semester,
-                    'tran_id' => $p->tran_id ?? null
+                    'tran_id' => $p->tran_id ?? null,
+                    'registration_id' => $regId, // Added for QR generation
                 ];
             }
 
