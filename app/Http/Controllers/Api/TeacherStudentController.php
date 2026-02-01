@@ -26,27 +26,43 @@ class TeacherStudentController extends Controller
             }
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
 
-            $studentIds = CourseEnrollment::whereIn('course_id', $courseIds)
+            $enrollments = CourseEnrollment::with(['student.user', 'student.department', 'course.majorSubject.subject', 'course.classGroup'])
+                ->whereIn('course_id', $courseIds)
                 ->where('status', 'enrolled')
-                ->distinct('student_id')
-                ->pluck('student_id');
+                ->get();
 
-            $students = Student::with(['user', 'department'])
-                ->whereIn('id', $studentIds)
-                ->get()
-                ->map(function($s) {
-                    return [
+            $studentsMap = [];
+
+            foreach ($enrollments as $e) {
+                $s = $e->student;
+                if (!$s) continue;
+
+                if (!isset($studentsMap[$s->id])) {
+                    $profileUrl = null;
+                    if ($s->user && $s->user->profile_picture_path) {
+                        $profileUrl = url('uploads/profiles/' . basename($s->user->profile_picture_path));
+                    }
+
+                    $studentsMap[$s->id] = [
                         'id' => $s->id,
-                        'full_name' => $s->full_name,
+                        'full_name' => $s->full_name_en ?: $s->full_name_kh,
                         'email' => $s->user?->email,
                         'student_id_card' => $s->student_code,
                         'department' => $s->department?->name,
                         'status' => 'active',
-                        'profile_picture_url' => $s->user?->profile_picture_url,
+                        'profile_picture_url' => $profileUrl,
+                        'courses' => []
                     ];
-                });
+                }
 
-            return response()->json(['data' => $students], 200);
+                $studentsMap[$s->id]['courses'][] = [
+                    'id' => $e->course_id,
+                    'course_name' => $e->course?->majorSubject?->subject?->subject_name,
+                    'class_name' => $e->course?->classGroup?->class_name,
+                ];
+            }
+
+            return response()->json(['data' => array_values($studentsMap)], 200);
         } catch (\Throwable $e) {
             Log::error('TeacherStudentController@index error: ' . $e->getMessage());
             return response()->json(['message' => 'Failed to load students'], 500);

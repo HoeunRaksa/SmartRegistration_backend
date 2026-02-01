@@ -48,12 +48,12 @@ class TeacherDashboardController extends Controller
                 ->limit(10)
                 ->get()
                 ->unique('id') // Extra safety to remove duplicates
-                ->map(function($s) use ($courseIds) {
+                ->map(function ($s) use ($courseIds) {
                     // Count students enrolled in this course
                     $studentCount = CourseEnrollment::where('course_id', $s->course_id)
                         ->where('status', 'enrolled')
                         ->count();
-                    
+
                     return [
                         'id' => $s->id,
                         'course' => $s->course?->majorSubject?->subject?->subject_name ?? $s->course?->name ?? 'Class Session',
@@ -64,11 +64,38 @@ class TeacherDashboardController extends Controller
                     ];
                 })->values();
 
+            // ✅ Get 5 most recent/active students
+            $recentStudents = CourseEnrollment::with(['student.user', 'student.department'])
+                ->whereIn('course_id', $courseIds)
+                ->where('status', 'enrolled')
+                ->latest()
+                ->get()
+                ->unique('student_id')
+                ->take(5)
+                ->map(function ($e) {
+                    $s = $e->student;
+                    if (!$s) return null;
+
+                    $profileUrl = null;
+                    if ($s->user && $s->user->profile_picture_path) {
+                        $profileUrl = url('uploads/profiles/' . basename($s->user->profile_picture_path));
+                    }
+
+                    return [
+                        'id' => $s->id,
+                        'name' => $s->full_name_en ?: $s->full_name_kh,
+                        'student_code' => $s->student_code,
+                        'department' => $s->department?->name,
+                        'profile_picture_url' => $profileUrl,
+                    ];
+                })->filter()->values();
+
             return response()->json([
                 'data' => [
                     'total_students' => $totalStudents,
                     'total_courses' => $totalCourses,
                     'upcoming_sessions' => $upcomingSessions,
+                    'recent_students' => $recentStudents,
                     'years_teaching' => 4, // Placeholder if not in DB
                 ]
             ], 200);
@@ -86,7 +113,7 @@ class TeacherDashboardController extends Controller
         $teacher = Teacher::with('user', 'department')
             ->where('user_id', $request->user()->id)
             ->firstOrFail();
-            
+
         return response()->json([
             'data' => $teacher
         ]);
@@ -106,7 +133,7 @@ class TeacherDashboardController extends Controller
             'office_location' => 'nullable|string|max:255',
             'specialization' => 'nullable|string|max:255',
             'education' => 'nullable|string|max:255',
-            
+
             // User fields
             'email' => 'required|email|unique:users,email,' . $user->id,
             'image' => 'nullable|image|max:2048',
@@ -133,7 +160,7 @@ class TeacherDashboardController extends Controller
                 if ($user->profile_picture_path && \Illuminate\Support\Facades\File::exists(public_path($user->profile_picture_path))) {
                     \Illuminate\Support\Facades\File::delete(public_path($user->profile_picture_path));
                 }
-                
+
                 // Upload new
                 $file = $request->file('image');
                 $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
@@ -147,7 +174,7 @@ class TeacherDashboardController extends Controller
             // Refresh to return updated data
             $teacher->refresh();
             $teacher->load('user', 'department');
-            
+
             // Generate full URL for profile picture
             if ($teacher->user->profile_picture_path) {
                 $teacher->user->profile_picture_url = asset($teacher->user->profile_picture_path);
@@ -157,7 +184,6 @@ class TeacherDashboardController extends Controller
                 'message' => 'Profile updated successfully',
                 'data' => $teacher
             ]);
-
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('TeacherDashboardController@updateProfile error: ' . $e->getMessage());
