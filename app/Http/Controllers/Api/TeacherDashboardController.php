@@ -40,21 +40,29 @@ class TeacherDashboardController extends Controller
 
             $totalCourses = $courseIds->count();
 
-            $upcomingSessions = ClassSession::with(['course.majorSubject.subject'])
+            $upcomingSessions = ClassSession::with(['course.majorSubject.subject', 'course.room'])
                 ->whereIn('course_id', $courseIds)
-                ->where('session_date', '>=', now()->toDateString())
-                ->orderBy('session_date')
+                ->where('session_date', now()->toDateString()) // Only TODAY
                 ->orderBy('start_time')
-                ->limit(5)
+                ->distinct()
+                ->limit(10)
                 ->get()
-                ->map(function($s) {
+                ->unique('id') // Extra safety to remove duplicates
+                ->map(function($s) use ($courseIds) {
+                    // Count students enrolled in this course
+                    $studentCount = CourseEnrollment::where('course_id', $s->course_id)
+                        ->where('status', 'enrolled')
+                        ->count();
+                    
                     return [
                         'id' => $s->id,
-                        'course' => $s->course?->majorSubject?->subject?->subject_name,
+                        'course' => $s->course?->majorSubject?->subject?->subject_name ?? $s->course?->name ?? 'Class Session',
                         'date' => $s->session_date,
                         'time' => $s->start_time . ' - ' . $s->end_time,
+                        'room' => $s->course?->room?->room_number ?? $s->room ?? 'TBA',
+                        'students' => $studentCount,
                     ];
-                });
+                })->values();
 
             return response()->json([
                 'data' => [
