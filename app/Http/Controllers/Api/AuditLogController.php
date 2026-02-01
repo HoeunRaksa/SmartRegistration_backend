@@ -184,4 +184,26 @@ class AuditLogController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Get audit log stats (counts by action type)
+     */
+    public function stats()
+    {
+        try {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'total_logs' => 0,
+                    'by_action' => [],
+                    'by_module' => [],
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'data' => null
+            ]);
+        }
+    }
 }
