@@ -604,4 +604,83 @@ class PaymentController extends Controller
             return response()->json(['ack' => 'ok']);
         }
     }
+    public function getStudentPayments(Request $request)
+    {
+        try {
+            $user = $request->user();
+            $student = DB::table('students')->where('user_id', $user->id)->first();
+
+            if (!$student) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Student record not found.'
+                ], 404);
+            }
+
+            $studentId = $student->id;
+
+            // 1. Fetch Academic Periods (Dues/Billing)
+            $periods = DB::table('student_academic_periods')
+                ->where('student_id', $studentId)
+                ->orderByDesc('academic_year')
+                ->orderByDesc('semester')
+                ->get();
+
+            // 2. Fetch specific Transactions (QR/ABA history)
+            $transactions = DB::table('payment_transactions')
+                ->where('student_id', $studentId)
+                ->orderByDesc('id')
+                ->get();
+
+            $ledger = [];
+
+            // Add periods as primary ledger items
+            foreach ($periods as $p) {
+                $ledger[] = [
+                    'id' => 'PER-' . $p->id,
+                    'amount' => (float)($p->tuition_amount ?? 0),
+                    'status' => strtoupper($p->payment_status ?? 'PENDING'),
+                    'payment_status' => $p->payment_status,
+                    'method' => $p->payment_status === 'PAID' ? 'Verified' : 'Pending Action',
+                    'description' => "Tuition - Year {$p->academic_year} (Sem {$p->semester})",
+                    'date' => $p->paid_at ?? $p->created_at ?? $p->updated_at,
+                    'type' => 'PERIOD',
+                    'academic_year' => $p->academic_year,
+                    'semester' => $p->semester,
+                    'tran_id' => $p->tran_id ?? null
+                ];
+            }
+
+            // Also add any transactions that are FAILED or REJECTED (not already represented by periods)
+            foreach ($transactions as $tx) {
+                // If this transaction is already linked to a period in our ledger, we might skip or show as detail
+                // For now, let's just add failed ones as separate entries to inform the student
+                if (in_array(strtoupper($tx->status), ['FAILED', 'REJECTED', 'REJECTED_FULL'])) {
+                    $ledger[] = [
+                        'id' => 'TXN-' . $tx->id,
+                        'amount' => (float)($tx->amount ?? 0),
+                        'status' => strtoupper($tx->status),
+                        'payment_status' => $tx->status,
+                        'method' => 'ABA Pay',
+                        'description' => "Attempted: " . ($tx->pay_plan_type === 'YEAR' ? 'Full Year' : "Sem {$tx->semester}"),
+                        'date' => $tx->created_at ?? $tx->updated_at,
+                        'type' => 'TRANSACTION',
+                        'tran_id' => $tx->tran_id
+                    ];
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $ledger
+            ]);
+
+        } catch (\Throwable $e) {
+            Log::error('getStudentPayments error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch payment data'
+            ], 500);
+        }
+    }
 }

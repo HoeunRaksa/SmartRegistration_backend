@@ -416,6 +416,7 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
 Route::middleware(['auth:sanctum', 'role:student'])->prefix('student')->group(function () {
     // Dashboard
     Route::get('/dashboard', [StudentDashboardController::class, 'getDashboard']);
+    Route::get('/payments', [PaymentController::class, 'getStudentPayments']);
 
     // Profile
     Route::get('/profile', [StudentProfileController::class, 'getProfile']);
