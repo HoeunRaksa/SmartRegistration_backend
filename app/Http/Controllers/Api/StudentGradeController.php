@@ -31,10 +31,10 @@ class StudentGradeController extends Controller
                     return [
                         'id' => $grade->id,
                         'course_id' => $course?->id,
-                        'course_code' => $subject?->subject_code ?? 'N/A',
-                        'course_name' => $subject?->subject_name ?? 'N/A',
+                        'course_code' => $subject?->subject_code ?? 'CODE-' . $course?->id,
+                        'course_name' => $subject?->subject_name ?? 'Untitled Course',
                         'credits' => $subject?->credits ?? 0,
-                        'instructor' => $course?->teacher?->user?->name ?? 'N/A',
+                        'instructor' => $course?->teacher?->user?->name ?? 'Unknown Instructor',
                         'semester' => $course?->semester,
                         'academic_year' => $course?->academic_year,
                         'assignment_name' => $grade->assignment_name,
@@ -200,8 +200,8 @@ class StudentGradeController extends Controller
                     $totalCredits += $credits;
 
                     return [
-                        'course_code' => $subject?->subject_code ?? 'N/A',
-                        'course_name' => $subject?->subject_name ?? 'N/A',
+                        'course_code' => $subject?->subject_code ?? 'CODE-' . ($grade->course_id ?? '?'),
+                        'course_name' => $subject?->subject_name ?? 'Untitled Course',
                         'credits' => $credits,
                         'grade' => $grade->letter_grade ?? $this->calculateLetterGrade($grade->grade_point),
                         'grade_point' => $grade->grade_point,
@@ -246,7 +246,7 @@ class StudentGradeController extends Controller
      */
     private function calculateLetterGrade(?float $gradePoint): string
     {
-        if ($gradePoint === null) return 'N/A';
+        if ($gradePoint === null) return 'NG';
         if ($gradePoint >= 4.0) return 'A';
         if ($gradePoint >= 3.7) return 'A-';
         if ($gradePoint >= 3.3) return 'B+';

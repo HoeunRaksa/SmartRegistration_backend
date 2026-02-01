@@ -118,10 +118,10 @@ class StudentDashboardController extends Controller
 
                 return [
                     'id' => $course->id,
-                    'course_code' => $subject?->subject_code ?? '',
-                    'course_name' => $subject?->subject_name ?? '',
+                    'course_code' => $subject?->subject_code ?? 'CODE-' . $course->id,
+                    'course_name' => $subject?->subject_name ?? 'Untitled Course',
                     'credits' => $subject?->credits ?? 0,
-                    'instructor_name' => $teacher?->user?->name ?? '',
+                    'instructor_name' => $teacher?->user?->name ?? 'Unknown Instructor',
                     'semester' => $course->semester,
                     'academic_year' => $course->academic_year,
                 ];
@@ -160,12 +160,12 @@ class StudentDashboardController extends Controller
 
                 return [
                     'id' => $schedule->id,
-                    'course_code' => $subject?->subject_code ?? '',
-                    'course_name' => $subject?->subject_name ?? '',
+                    'course_code' => $subject?->subject_code ?? 'CODE-' . $course->id,
+                    'course_name' => $subject?->subject_name ?? 'Untitled Course',
                     'start_time' => $schedule->start_time,
                     'end_time' => $schedule->end_time,
-                    'room' => $room ? $room->room_number : ($schedule->room ?? ''),
-                    'instructor_name' => $teacher?->user?->name ?? '',
+                    'room' => $room ? $room->room_number : ($schedule->room ?? 'TBA'),
+                    'instructor_name' => $teacher?->user?->name ?? 'Unknown Instructor',
                 ];
             })->filter()->values()->toArray();
         } catch (\Throwable $e) {
@@ -189,8 +189,8 @@ class StudentDashboardController extends Controller
 
                 return [
                     'id' => $grade->id,
-                    'course_code' => $subject?->subject_code ?? '',
-                    'course_name' => $subject?->subject_name ?? '',
+                    'course_code' => $subject?->subject_code ?? 'CODE-' . ($grade->course_id ?? '?'),
+                    'course_name' => $subject?->subject_name ?? 'Untitled Course',
                     'assignment_name' => $grade->assignment_name ?? 'Assignment',
                     'score' => (float) ($grade->score ?? 0),
                     'total_points' => (float) ($grade->total_points ?? 100),
@@ -253,7 +253,7 @@ class StudentDashboardController extends Controller
 
                 return [
                     'id' => $assignment->id,
-                    'course_code' => $subject?->subject_code ?? '',
+                    'course_code' => $subject?->subject_code ?? 'CODE-' . ($assignment->course_id ?? '?'),
                     'title' => $assignment->title,
                     'due_date' => $dueDateFormatted,
                     'due_time' => $assignment->due_time,

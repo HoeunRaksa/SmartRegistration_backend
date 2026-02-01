@@ -43,12 +43,12 @@ class StudentCourseController extends Controller
                 return [
                     'enrollment_id' => $enrollment->id,
                     'course_id' => $course->id,
-                    'course_code' => $subject?->subject_code ?? null,
-                    'course_name' => $subject?->subject_name ?? null,
+                    'course_code' => $subject?->subject_code ?? 'CODE-' . $course->id,
+                    'course_name' => $subject?->subject_name ?? 'Untitled Course',
                     'credits' => $subject?->credits ?? 0,
                     'instructor' => [
                         'id' => $teacher?->id,
-                        'name' => $teacher?->user?->name ?? null,
+                        'name' => $teacher?->user?->name ?? 'Unknown Instructor',
                     ],
                     'class_group' => $course->classGroup?->name ?? null,
                     'semester' => $course->semester,
@@ -104,13 +104,13 @@ class StudentCourseController extends Controller
 
                     return [
                         'course_id' => $course->id,
-                        'course_code' => $subject?->subject_code ?? null,
-                        'course_name' => $subject?->subject_name ?? null,
+                        'course_code' => $subject?->subject_code ?? 'CODE-' . $course->id,
+                        'course_name' => $subject?->subject_name ?? 'Untitled Course',
                         'description' => $subject?->description ?? null,
                         'credits' => $subject?->credits ?? 0,
                         'instructor' => [
                             'id' => $teacher?->id,
-                            'name' => $teacher?->user?->name ?? null,
+                            'name' => $teacher?->user?->name ?? 'Unknown Instructor',
                         ],
                         'class_group' => $course->classGroup?->name ?? null,
                         'semester' => $course->semester,
@@ -162,13 +162,13 @@ class StudentCourseController extends Controller
             return response()->json([
                 'data' => [
                     'course_id' => $course->id,
-                    'course_code' => $subject?->subject_code ?? null,
-                    'course_name' => $subject?->subject_name ?? null,
+                    'course_code' => $subject?->subject_code ?? 'CODE-' . $course->id,
+                    'course_name' => $subject?->subject_name ?? 'Untitled Course',
                     'description' => $subject?->description ?? null,
                     'credits' => $subject?->credits ?? 0,
                     'instructor' => [
                         'id' => $teacher?->id,
-                        'name' => $teacher?->user?->name ?? null,
+                        'name' => $teacher?->user?->name ?? 'Unknown Instructor',
                         'email' => $teacher?->user?->email ?? null,
                     ],
                     'class_group' => $course->classGroup?->name ?? null,
@@ -307,8 +307,8 @@ class StudentCourseController extends Controller
                     return [
                         'enrollment_id' => $enrollment->id,
                         'course_id' => $course?->id,
-                        'course_code' => $subject?->subject_code ?? null,
-                        'course_name' => $subject?->subject_name ?? null,
+                        'course_code' => $subject?->subject_code ?? 'CODE-' . ($course?->id ?? '?'),
+                        'course_name' => $subject?->subject_name ?? 'Untitled Course',
                         'credits' => $subject?->credits ?? 0,
                         'status' => $enrollment->status,
                         'enrolled_at' => $enrollment->enrolled_at,

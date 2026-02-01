@@ -45,9 +45,9 @@ class StudentAttendanceController extends Controller
                         'id' => $record->id,
                         'session_id' => $session?->id,
                         'course_id' => $course?->id,
-                        'course_code' => $subject?->subject_code ?? 'N/A',
-                        'course_name' => $subject?->subject_name ?? 'N/A',
-                        'instructor' => $course?->teacher?->user?->name ?? 'N/A',
+                        'course_code' => $subject?->subject_code ?? 'CODE-' . $course?->id,
+                        'course_name' => $subject?->subject_name ?? 'Untitled Course',
+                        'instructor' => $course?->teacher?->user?->name ?? 'Unknown Instructor',
                         'session_date' => $session?->session_date,
                         'session_time' => $session?->start_time . ' - ' . $session?->end_time,
                         'status' => $record->status,
@@ -213,8 +213,8 @@ class StudentAttendanceController extends Controller
 
                 $summary[] = [
                     'course_id' => $courseId,
-                    'course_code' => $subject?->subject_code ?? 'N/A',
-                    'course_name' => $subject?->subject_name ?? 'N/A',
+                    'course_code' => $subject?->subject_code ?? 'CODE-' . $courseId,
+                    'course_name' => $subject?->subject_name ?? 'Untitled Course',
                     'total_sessions' => $total,
                     'present' => $present,
                     'absent' => $absent,
@@ -257,7 +257,7 @@ class StudentAttendanceController extends Controller
                     return [
                         'date' => $date,
                         'sessions' => $dayRecords->map(fn($r) => [
-                            'course' => $r->classSession?->course?->majorSubject?->subject?->subject_name ?? 'N/A',
+                            'course' => $r->classSession?->course?->majorSubject?->subject?->subject_name ?? 'Untitled Course',
                             'status' => $r->status,
                         ])->values(),
                     ];
