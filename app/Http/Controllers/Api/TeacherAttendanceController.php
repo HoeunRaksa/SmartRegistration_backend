@@ -85,6 +85,7 @@ class TeacherAttendanceController extends Controller
             
             $sessions = ClassSession::with(['course.majorSubject.subject'])
                 ->whereIn('course_id', $courseIds)
+                ->where('session_date', $today) // Only TODAY's sessions
                 ->orderByDesc('session_date')
                 ->get()
                 ->map(function($s) use ($today, $currentTime) {
@@ -94,7 +95,7 @@ class TeacherAttendanceController extends Controller
                     // Check if manually created (created on same day as session)
                     $isManual = $createdDate && $createdDate === $sessionDate;
                     
-                    // Check if this is the currently active session
+                    // Check if this is the currently active session (within time window)
                     $isCurrent = false;
                     if ($sessionDate === $today && $s->start_time && $s->end_time) {
                         $start = Carbon::parse($s->start_time)->subMinutes(15)->format('H:i');
@@ -113,9 +114,14 @@ class TeacherAttendanceController extends Controller
                         'room' => $s->room ?? '',
                         'is_manual' => $isManual,
                         'is_current' => $isCurrent,
-                        'is_today' => $sessionDate === $today,
+                        'is_today' => true, // All sessions returned are today
                     ];
-                });
+                })
+                ->filter(function($s) {
+                    // Only return sessions that are currently active
+                    return $s['is_current'] === true;
+                })
+                ->values();
 
             Log::info('TeacherAttendanceController@getSessions - Sessions count: ' . $sessions->count());
 
