@@ -18,7 +18,9 @@ class FriendRequestController extends Controller
         $user = $request->user();
         $myId = $user->id; // Use User ID directly
 
-        $query = User::query()->where('id', '!=', $myId);
+        $query = User::query()
+            ->where('id', '!=', $myId)
+            ->has('student'); // ONLY return users who have a student profile
 
         // Filters based on role
         if ($user->role === 'student' && $user->student) {
