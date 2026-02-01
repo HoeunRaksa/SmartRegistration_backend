@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 
 use App\Models\FriendRequest;
 use App\Models\Student;
+use App\Models\User;
 use App\Models\StudentClassGroup;
 use Illuminate\Support\Facades\DB;
 
@@ -15,55 +16,63 @@ class FriendRequestController extends Controller
     public function searchStudents(Request $request)
     {
         $user = $request->user();
-        if (!$user->student) {
-            return response()->json(['success' => false, 'message' => 'Not a student'], 403);
+        $myId = $user->id; // Use User ID directly
+
+        $query = User::query()->where('id', '!=', $myId);
+
+        // Filters based on role
+        if ($user->role === 'student' && $user->student) {
+            $myClassGroups = StudentClassGroup::where('student_id', $user->student->id)
+                ->pluck('class_group_id')
+                ->toArray();
+
+            // Students can find people in their class groups OR anyone if searching
+            if (!$request->filled('search')) {
+                $query->whereHas('student.classGroups', function($q) use ($myClassGroups) {
+                    $q->whereIn('class_groups.id', $myClassGroups);
+                });
+            }
         }
 
-        $myId = $user->student->id;
-        $myClassGroups = StudentClassGroup::where('student_id', $myId)
-            ->pluck('class_group_id')
-            ->toArray();
-
-        $friendIds = FriendRequest::where(function($q) use ($myId) {
-                $q->where('sender_id', $myId)->orWhere('receiver_id', $myId);
-            })
-            ->where('status', 'accepted')
-            ->get()
-            ->map(function($f) use ($myId) {
-                return $f->sender_id == $myId ? $f->receiver_id : $f->sender_id;
-            })
-            ->toArray();
-
-        $query = Student::query();
-
-        // If searching, allow finding anyone but need to add/request
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function($q) use ($search) {
-                $q->where('full_name_en', 'like', "%$search%")
-                  ->orWhere('student_code', 'like', "%$search%");
+                $q->where('name', 'like', "%$search%")
+                  ->orWhere('email', 'like', "%$search%")
+                  ->orWhereHas('student', function($sq) use ($search) {
+                      $sq->where('student_code', 'like', "%$search%");
+                  });
             });
         }
 
-        // Filter: same class group OR already friends
-        $query->where(function($q) use ($myClassGroups, $friendIds, $myId) {
-            $q->whereHas('classGroups', function($sq) use ($myClassGroups) {
-                $sq->whereIn('class_groups.id', $myClassGroups);
-            })
-            ->orWhereIn('id', $friendIds);
-        })
-        ->where('id', '!=', $myId);
+        $results = $query->with(['student', 'teacher'])->limit(20)->get();
 
-        return response()->json(['success' => true, 'data' => $query->limit(20)->get()]);
+        // Attach connection status
+        foreach ($results as $item) {
+            $existing = FriendRequest::where(function($q) use ($myId, $item) {
+                    $q->where('sender_id', $myId)->where('receiver_id', $item->id);
+                })->orWhere(function($q) use ($myId, $item) {
+                    $q->where('sender_id', $item->id)->where('receiver_id', $myId);
+                })->first();
+
+            $item->connection_status = $existing ? $existing->status : null;
+            $item->connection_id = $existing ? $existing->id : null;
+            
+            // For frontend compatibility with studentSide
+            $item->full_name_en = $item->name;
+            $item->student_code = $item->student ? $item->student->student_code : null;
+        }
+
+        return response()->json(['success' => true, 'data' => $results]);
     }
 
     public function sendRequest(Request $request)
     {
         $validated = $request->validate([
-            'receiver_id' => 'required|exists:students,id',
+            'receiver_id' => 'required|exists:users,id',
         ]);
 
-        $senderId = $request->user()->student->id;
+        $senderId = $request->user()->id;
         $receiverId = $validated['receiver_id'];
 
         if ($senderId == $receiverId) {
@@ -77,7 +86,11 @@ class FriendRequestController extends Controller
             })->first();
 
         if ($exists) {
-            return response()->json(['message' => 'Request already exists', 'status' => $exists->status], 409);
+            return response()->json([
+                'message' => 'Request already exists', 
+                'status' => $exists->status,
+                'data' => $exists
+            ], 409);
         }
 
         $fr = FriendRequest::create([
@@ -92,7 +105,7 @@ class FriendRequestController extends Controller
     public function acceptRequest(Request $request, $id)
     {
         $fr = FriendRequest::findOrFail($id);
-        if ($fr->receiver_id != $request->user()->student->id) {
+        if ($fr->receiver_id != $request->user()->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

@@ -10,16 +10,21 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (DB::getDriverName() !== 'mysql') {
+        try {
+            $driver = strtolower(DB::getDriverName());
+            if ($driver !== 'mysql') {
+                return;
+            }
+        } catch (\Exception $e) {
             return;
         }
 
         // Convert users table to utf8mb4
         DB::statement('ALTER TABLE users CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-        
+
         // Convert staffs table to utf8mb4
         DB::statement('ALTER TABLE staffs CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-        
+
         // Specifically fix problematic columns
         DB::statement('ALTER TABLE staffs MODIFY full_name VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
         DB::statement('ALTER TABLE staffs MODIFY full_name_kh VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
@@ -31,7 +36,11 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (DB::getDriverName() !== 'mysql') {
+        try {
+            if (strtolower(DB::getDriverName()) !== 'mysql') {
+                return;
+            }
+        } catch (\Exception $e) {
             return;
         }
 

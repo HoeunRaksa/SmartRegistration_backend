@@ -7,6 +7,7 @@ use App\Models\Course;
 use App\Models\CourseEnrollment;
 use App\Models\Teacher;
 use App\Models\Student;
+use App\Models\FriendRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -43,14 +44,23 @@ class TeacherStudentController extends Controller
                         $profileUrl = url('uploads/profiles/' . basename($s->user->profile_picture_path));
                     }
 
+                    // Check connection status
+                    $existing = FriendRequest::where(function($q) use ($user, $s) {
+                        $q->where('sender_id', $user->id)->where('receiver_id', $s->user_id);
+                    })->orWhere(function($q) use ($user, $s) {
+                        $q->where('sender_id', $s->user_id)->where('receiver_id', $user->id);
+                    })->first();
+
                     $studentsMap[$s->id] = [
                         'id' => $s->id,
+                        'user_id' => $s->user_id,
                         'full_name' => $s->full_name_en ?: $s->full_name_kh,
                         'email' => $s->user?->email,
                         'student_id_card' => $s->student_code,
                         'department' => $s->department?->name,
                         'status' => 'active',
                         'profile_picture_url' => $profileUrl,
+                        'connection_status' => $existing ? $existing->status : null,
                         'courses' => []
                     ];
                 }
