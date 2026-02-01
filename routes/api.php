@@ -166,6 +166,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/students/search', [FriendRequestController::class, 'searchStudents']);
         Route::post('/friend-requests', [FriendRequestController::class, 'sendRequest']);
         Route::post('/friend-requests/{id}/accept', [FriendRequestController::class, 'acceptRequest']);
+        Route::delete('/friend-requests/{id}', [FriendRequestController::class, 'removeConnection']);
     });
 
     // Project Groups

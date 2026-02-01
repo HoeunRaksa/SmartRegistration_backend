@@ -112,4 +112,18 @@ class FriendRequestController extends Controller
         $fr->update(['status' => 'accepted']);
         return response()->json(['success' => true]);
     }
+
+    public function removeConnection(Request $request, $id)
+    {
+        $fr = FriendRequest::findOrFail($id);
+        $userId = $request->user()->id;
+
+        // Ensure the person removing is either the sender or receiver
+        if ($fr->sender_id != $userId && $fr->receiver_id != $userId) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $fr->delete();
+        return response()->json(['success' => true]);
+    }
 }

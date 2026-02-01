@@ -61,6 +61,7 @@ class TeacherStudentController extends Controller
                         'status' => 'active',
                         'profile_picture_url' => $profileUrl,
                         'connection_status' => $existing ? $existing->status : null,
+                        'connection_id' => $existing ? $existing->id : null,
                         'courses' => []
                     ];
                 }
