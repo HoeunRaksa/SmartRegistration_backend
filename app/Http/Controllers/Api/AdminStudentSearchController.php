@@ -93,7 +93,10 @@ class AdminStudentSearchController extends Controller
                 });
             }
 
-            $paginator = $studentsQ->orderByDesc('students.id')->paginate($perPage);
+            $paginator = $studentsQ
+                ->groupBy('students.id')
+                ->orderByDesc('students.id')
+                ->paginate($perPage);
 
             $data = collect($paginator->items())->map(function ($s) {
                 $profileUrl = null;
