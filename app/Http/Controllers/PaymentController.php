@@ -627,10 +627,18 @@ class PaymentController extends Controller
                 ->get();
 
             // 2. Fetch specific Transactions (QR/ABA history)
-            $transactions = DB::table('payment_transactions')
-                ->where('student_id', $studentId)
-                ->orderByDesc('id')
-                ->get();
+            // Robust check: use registration_id in tran_id since student_id might be missing
+            $regId = $student->registration_id;
+            $transactionsQuery = DB::table('payment_transactions');
+            
+            if (Schema::hasColumn('payment_transactions', 'student_id')) {
+                $transactionsQuery->where('student_id', $studentId);
+            } else {
+                // Fallback to tran_id prefix: REG-{id}-
+                $transactionsQuery->where('tran_id', 'LIKE', "REG-{$regId}-%");
+            }
+
+            $transactions = $transactionsQuery->orderByDesc('updated_at')->get();
 
             $ledger = [];
 
