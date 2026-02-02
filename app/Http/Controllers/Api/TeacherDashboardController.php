@@ -40,15 +40,14 @@ class TeacherDashboardController extends Controller
 
             $totalCourses = $courseIds->count();
 
-            $upcomingSessions = ClassSession::with(['course.majorSubject.subject', 'course.room'])
+            $upcomingSessions = ClassSession::with(['course.majorSubject.subject', 'roomRef'])
                 ->whereIn('course_id', $courseIds)
                 ->where('session_date', now()->toDateString()) // Only TODAY
                 ->orderBy('start_time')
-                ->distinct()
                 ->limit(10)
                 ->get()
-                ->unique('id') // Extra safety to remove duplicates
-                ->map(function ($s) use ($courseIds) {
+                ->unique('id')
+                ->map(function ($s) {
                     // Count students enrolled in this course
                     $studentCount = CourseEnrollment::where('course_id', $s->course_id)
                         ->where('status', 'enrolled')
@@ -57,9 +56,9 @@ class TeacherDashboardController extends Controller
                     return [
                         'id' => $s->id,
                         'course' => $s->course?->majorSubject?->subject?->subject_name ?? $s->course?->name ?? 'Class Session',
-                        'date' => $s->session_date,
+                        'date' => $s->session_date ? (is_string($s->session_date) ? $s->session_date : $s->session_date->toDateString()) : null,
                         'time' => $s->start_time . ' - ' . $s->end_time,
-                        'room' => $s->course?->room?->room_number ?? $s->room ?? 'TBA',
+                        'room' => $s->roomRef?->room_number ?? $s->room ?? 'TBA',
                         'students' => $studentCount,
                     ];
                 })->values();
@@ -77,13 +76,15 @@ class TeacherDashboardController extends Controller
                     if (!$s) return null;
 
                     $profileUrl = null;
-                    if ($s->user && $s->user->profile_picture_path) {
-                        $profileUrl = url('uploads/profiles/' . basename($s->user->profile_picture_path));
+                    // Try student path first, then user path
+                    $imagePath = $s->profile_picture_path ?? $s->user?->profile_picture_path;
+                    if ($imagePath) {
+                        $profileUrl = url('uploads/profiles/' . basename($imagePath));
                     }
 
                     return [
                         'id' => $s->id,
-                        'name' => $s->full_name_en ?: $s->full_name_kh,
+                        'name' => $s->full_name_en ?: $s->full_name_kh ?: ('Student #' . $s->id),
                         'student_code' => $s->student_code,
                         'department' => $s->department?->name,
                         'profile_picture_url' => $profileUrl,
