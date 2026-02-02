@@ -28,16 +28,15 @@ class TeacherStudentController extends Controller
             $courseIds = Course::where('teacher_id', $teacher->id)->pluck('id');
 
             $enrollments = CourseEnrollment::with(['student.user', 'student.department', 'course.majorSubject.subject', 'course.classGroup'])
-                ->whereHas('student.user') // ONLY students with a user account
                 ->whereIn('course_id', $courseIds)
-                ->where('status', 'enrolled')
+                ->whereIn('status', ['enrolled', 'completed', 'active']) // Broaden status check
                 ->get();
 
             $studentsMap = [];
 
             foreach ($enrollments as $e) {
                 $s = $e->student;
-                if (!$s || !$s->user_id || !$s->user) continue; // Double check user exists
+                if (!$s) continue; 
 
                 if (!isset($studentsMap[$s->id])) {
                     $profileUrl = null;
@@ -45,20 +44,23 @@ class TeacherStudentController extends Controller
                         $profileUrl = url('uploads/profiles/' . basename($s->user->profile_picture_path));
                     }
 
-                    // Check connection status
-                    $existing = FriendRequest::where(function($q) use ($user, $s) {
-                        $q->where('sender_id', $user->id)->where('receiver_id', $s->user_id);
-                    })->orWhere(function($q) use ($user, $s) {
-                        $q->where('sender_id', $s->user_id)->where('receiver_id', $user->id);
-                    })->first();
+                    // Check connection status - only if student has a user
+                    $existing = null;
+                    if ($s->user_id) {
+                        $existing = FriendRequest::where(function($q) use ($user, $s) {
+                            $q->where('sender_id', $user->id)->where('receiver_id', $s->user_id);
+                        })->orWhere(function($q) use ($user, $s) {
+                            $q->where('sender_id', $s->user_id)->where('receiver_id', $user->id);
+                        })->first();
+                    }
 
                     $studentsMap[$s->id] = [
                         'id' => $s->id,
                         'user_id' => $s->user_id,
-                        'full_name' => $s->full_name_en ?: $s->full_name_kh,
-                        'email' => $s->user?->email,
+                        'full_name' => $s->full_name_en ?: $s->full_name_kh ?: ('Student #' . $s->student_code),
+                        'email' => $s->user?->email ?: 'N/A',
                         'student_id_card' => $s->student_code,
-                        'department' => $s->department?->name,
+                        'department' => $s->department?->name ?? 'Unassigned',
                         'status' => 'active',
                         'profile_picture_url' => $profileUrl,
                         'connection_status' => $existing ? $existing->status : null,
@@ -67,11 +69,13 @@ class TeacherStudentController extends Controller
                     ];
                 }
 
-                $studentsMap[$s->id]['courses'][] = [
-                    'id' => $e->course_id,
-                    'course_name' => $e->course?->majorSubject?->subject?->subject_name,
-                    'class_name' => $e->course?->classGroup?->class_name,
-                ];
+                if ($e->course) {
+                    $studentsMap[$s->id]['courses'][] = [
+                        'id' => $e->course_id,
+                        'course_name' => $e->course?->majorSubject?->subject?->subject_name ?? 'Unknown Course',
+                        'class_name' => $e->course?->classGroup?->class_name ?? 'No Class',
+                    ];
+                }
             }
 
             return response()->json(['data' => array_values($studentsMap)], 200);
